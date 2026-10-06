@@ -1,0 +1,89 @@
+diff --git a/parser_2gis/chrome/browser.py b/parser_2gis/chrome/browser.py
+index 06ed245..31b240a 100644
+--- a/parser_2gis/chrome/browser.py
++++ b/parser_2gis/chrome/browser.py
+@@ -41,12 +41,18 @@ class ChromeBrowser():
+             f'--js-flags=--expose-gc --max-old-space-size={chrome_options.memory_limit}',
+         ]
+ 
++        # Visible-but-offscreen window: headless loses results on some queries.
++        if os.environ.get('PARSER_2GIS_OFFSCREEN'):
++            self._chrome_cmd.append('--window-position=-3000,-3000')
++            self._chrome_cmd.append('--window-size=1920,1080')
++
+         if chrome_options.start_maximized:
+             self._chrome_cmd.append('--start-maximized')
+ 
+         if chrome_options.headless:
+             logger.debug('В Chrome установлен в скрытый режим.')
+-            self._chrome_cmd.append('--headless')
++            self._chrome_cmd.append('--headless=new')
++            self._chrome_cmd.append('--window-size=1920,1080')
+             self._chrome_cmd.append('--disable-gpu')
+ 
+         if chrome_options.disable_images:
+diff --git a/parser_2gis/chrome/remote.py b/parser_2gis/chrome/remote.py
+index f4dd0b1..59b94d9 100644
+--- a/parser_2gis/chrome/remote.py
++++ b/parser_2gis/chrome/remote.py
+@@ -88,6 +88,7 @@ class ChromeRemote:
+         fixed_useragent = original_useragent.replace('Headless', '')
+         self._chrome_tab.Network.setUserAgentOverride(userAgent=fixed_useragent)
+ 
++
+         # Hide webdriver traces
+         self.add_start_script(r'''
+             Object.defineProperty(navigator, 'webdriver', {
+diff --git a/parser_2gis/parser/parsers/main.py b/parser_2gis/parser/parsers/main.py
+index 54b9f22..7c04d60 100644
+--- a/parser_2gis/parser/parsers/main.py
++++ b/parser_2gis/parser/parsers/main.py
+@@ -1,6 +1,8 @@
+ from __future__ import annotations
+ 
+ import base64
++
++import pychrome
+ import json
+ import re
+ import urllib.parse
+@@ -202,10 +204,25 @@ class MainParser:
+             if not walk_page_number:
+                 # Iterate through gathered links
+                 for link in links:
++                    resp = None
+                     for _ in range(3):  # 3 attempts to get response
+                         # Click the link to provoke request
+                         # with a auth key and secret arguments
+-                        self._chrome_remote.perform_click(link)
++                        try:
++                            self._chrome_remote.perform_click(link)
++                        except pychrome.exceptions.CallMethodException:
++                            # The list was re-rendered and the node is stale:
++                            # find the same link by href in the live DOM and click it.
++                            href = json.dumps(link.attributes.get('href', ''))
++                            clicked = self._chrome_remote.execute_script(
++                                '(() => { const a = [...document.querySelectorAll("a")]'
++                                f'.find(x => x.getAttribute("href") === {href});'
++                                ' if (!a) return false;'
++                                ' a.scrollIntoView({block: "center", behavior: "instant"});'
++                                ' a.click(); return true; })()')
++                            if not clicked:
++                                logger.warning('Ссылка исчезла со страницы, пропускаю.')
++                                break
+ 
+                         # Delay between clicks, could be usefull if
+                         # 2GIS's anti-bot service become more strict.
+diff --git a/parser_2gis/writer/models/contact_group.py b/parser_2gis/writer/models/contact_group.py
+index 85b8855..68c4ef3 100644
+--- a/parser_2gis/writer/models/contact_group.py
++++ b/parser_2gis/writer/models/contact_group.py
+@@ -50,7 +50,7 @@ class Contact(BaseModel):
+ 
+ class ContactGroup(BaseModel):
+     # Список контактов
+-    contacts: List[Contact]
++    contacts: List[Contact] = []
+ 
+     # Расписание группы контактов
+     schedule: Optional[Schedule] = None

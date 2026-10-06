@@ -1,0 +1,113 @@
+# leadgen campaign config. Docs: docs/configuration.md
+# Every section is optional; defaults live in leadgen/core/campaign.py (DEFAULTS).
+
+[campaign]
+name = ""
+offer = ""                 # one line: what you sell and the outcome it gives
+language = "en"            # language for Accept-Language and outreach drafts
+country = ""               # ISO code of the main market, e.g. "PT", "US", "RU"
+default_phone_cc = ""      # country calling code for local phone numbers, e.g. "351"; RU/KZ 8-prefix handled
+
+# --- Sources: one [[sources]] block per adapter run. `leadgen sources` lists them all. -------------------
+# Free, global:
+[[sources]]
+type = "osm"
+queries = []               # presets ("dentist", "lawyer", "hair salon"...), tag filters ("office=lawyer"), or name words
+locations = []             # free text, geocoded: "Lisbon, Portugal"
+limit = 500
+
+# [[sources]]
+# type = "hn_hiring"       # companies posting in HN "Who is hiring?" (hiring signal)
+# months = 1
+# keywords = ["python"]
+# locations = ["remote", "europe"]
+
+# [[sources]]
+# type = "file"            # import your own CSV/JSONL list
+# paths = ["imports/list.csv"]
+
+# Keyed (optional):
+# [[sources]]
+# type = "google_places"   # needs GOOGLE_PLACES_API_KEY
+# queries = ["dentist"]
+# locations = ["Lisbon, Portugal"]
+# limit = 60
+
+# [[sources]]
+# type = "companies_house" # UK, needs COMPANIES_HOUSE_API_KEY (free)
+# sic_codes = ["62012"]
+# locations = ["Manchester"]
+# incorporated_from = "2026-07-01"
+
+# RU/CIS:
+# [[sources]]
+# type = "yandex_maps"
+# queries = ["стоматология"]
+# locations = ["kazan"]
+# pages = 4
+
+# [[sources]]
+# type = "twogis"          # needs: leadgen setup 2gis
+# queries = ["стоматология"]
+# locations = ["kazan"]
+# limit = 50
+
+# Demand (market research, not leads): kwork, flru, pchel, workspace_ru, telegram
+# [[sources]]
+# type = "kwork"
+# max_pages = 20
+
+# --- Enrichment ---------------------------------------------------------------------------------------------
+[enrich]
+site = true                # crawl own website: contacts, socials, legal ids, tech, site health
+max_inner_pages = 4        # contact/about/team/legal pages per site
+dns = true                 # MX lookup: email deliverability + mail provider
+jobs = false               # check Greenhouse/Lever/Ashby boards by domain (hiring signal)
+registry = []              # "rkn" (RU, by ИНН), "companies_house" (UK, needs key)
+workers = 8
+
+# --- Scoring: transparent rules, summed. `leadgen score` prints the formula. ----------------------------------
+# Ops: has / missing (field path), eq, ne, gte, lte, in, contains, matches (regex), signal, tech, category
+[[scoring.rules]]
+name = "reachable by email"
+has = "emails"
+points = 20
+
+[[scoring.rules]]
+name = "has phone"
+has = "phones"
+points = 10
+
+[[scoring.rules]]
+name = "established (20+ reviews)"
+field = "reviews"
+gte = 20
+points = 10
+
+[[scoring.rules]]
+name = "own website works"
+field = "site.reachable"
+eq = true
+points = 10
+
+[scoring.tiers]
+A = 40
+B = 25
+C = 10
+
+# --- Outreach ------------------------------------------------------------------------------------------------
+[outreach]
+send_mode = "off"          # off | confirm | auto. Drafts are always written; this only controls sending.
+channels = ["email"]       # email is sendable via SMTP; telegram/whatsapp/linkedin/phone are draft-only
+min_tier = "B"             # draft for this tier and better
+daily_cap = 30
+per_domain_cap = 1
+compliance = ""            # gdpr | uk-pecr | can-spam | casl | ru | "" (pick by market; see compliance skill)
+sender_name = ""
+sender_company = ""
+sender_address = ""        # physical postal address (required by CAN-SPAM)
+unsubscribe_text = ""      # e.g. "Not relevant? Reply 'no' and I won't write again."
+
+[http]
+delay = 1.0                # default seconds between requests to the same host
+cache = true

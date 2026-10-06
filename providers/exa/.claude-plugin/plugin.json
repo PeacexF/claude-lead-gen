@@ -17,7 +17,7 @@
   "mcpServers": {
     "exa": {
       "command": "npx",
-      "args": ["-y", "exa-mcp-server"],
+      "args": ["-y", "exa-mcp-server@3.4.2"],
       "env": { "EXA_API_KEY": "${user_config.api_key}" }
     }
   }

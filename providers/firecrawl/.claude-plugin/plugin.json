@@ -17,7 +17,7 @@
   "mcpServers": {
     "firecrawl": {
       "command": "npx",
-      "args": ["-y", "firecrawl-mcp"],
+      "args": ["-y", "firecrawl-mcp@3.27.3"],
       "env": { "FIRECRAWL_API_KEY": "${user_config.api_key}" }
     }
   }

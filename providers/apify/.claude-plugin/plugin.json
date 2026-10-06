@@ -17,7 +17,7 @@
   "mcpServers": {
     "apify": {
       "command": "npx",
-      "args": ["-y", "@apify/actors-mcp-server"],
+      "args": ["-y", "@apify/actors-mcp-server@0.17.2"],
       "env": { "APIFY_TOKEN": "${user_config.api_token}" }
     }
   }
