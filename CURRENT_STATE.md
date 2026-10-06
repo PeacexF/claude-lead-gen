@@ -46,6 +46,18 @@ exists, what was verified, and the exact next steps, so the next session can pic
 10. **Docs:** README (install, quickstart), `docs/architecture.md`, `configuration.md`, `sources.md`, `compliance.md`.
 11. **Live smoke test:** one small OSM campaign end to end, then fix whatever breaks.
 
+## Open security findings (fix first)
+From the background security review of the pushed commits:
+1. **CSV formula injection, `leadgen/core/store.py` (`write_csv`).** Business names, notes, and the like come from
+   scraped sources, so a cell starting with `=`, `+`, `-`, `@`, tab, or CR runs as a formula when someone opens
+   `leads.csv` in Excel or Sheets. Fix: in `flatten`/`write_csv`, prefix any such string cell with `'`.
+2. **SSRF, `leadgen/enrich/site.py` (`crawl`/`fetch`).** Site URLs come from untrusted data (directories, imports,
+   OSM tags), and the crawler follows them and their links and redirects. A lead whose "website" is
+   `http://127.0.0.1:…`, `169.254.169.254`, or a LAN host would make it fetch internal services. Fix: before each
+   request (including after redirects), resolve the host and refuse loopback, private, link-local, multicast,
+   and reserved IPs, and allow only http/https. Put the check in `Fetcher` behind a `public_only` flag that the
+   crawler sets.
+
 ## Known issues / notes
 - `.gitignore` has entries from the original template (`main`, `server`, `collector`, `context*`) that could
   shadow future paths with those names. Nothing uses them yet; review before adding such paths.
