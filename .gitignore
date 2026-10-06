@@ -18,6 +18,7 @@ sqlite.db
 logs
 *.log
 npm-debug.log*
+ref.*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
@@ -36,3 +37,11 @@ dist-ssr
 *.sln
 *.sw?
 notes/
+# leadgen: campaign data contains personal data — never commit
+campaigns/
+suppression.txt
+.leadgen-cache/
+*.leads.*
+.venv/
+tools/parser-2gis/
+.mcpb-cache/
