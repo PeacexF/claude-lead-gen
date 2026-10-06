@@ -1,0 +1,24 @@
+{
+  "name": "leadgen-exa",
+  "version": "0.1.0",
+  "description": "Exa MCP server for the leadgen plugin. Asks for your API key once and stores it in secure storage.",
+  "author": { "name": "Peace", "url": "https://github.com/PeacexF" },
+  "repository": "https://github.com/PeacexF/claude-lead-gen",
+  "license": "MIT",
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "Exa API key",
+      "description": "Get one at https://dashboard.exa.ai (free tier).",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "mcpServers": {
+    "exa": {
+      "command": "npx",
+      "args": ["-y", "exa-mcp-server"],
+      "env": { "EXA_API_KEY": "${user_config.api_key}" }
+    }
+  }
+}

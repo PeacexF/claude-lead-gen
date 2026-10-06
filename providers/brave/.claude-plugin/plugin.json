@@ -1,0 +1,24 @@
+{
+  "name": "leadgen-brave",
+  "version": "0.1.0",
+  "description": "Brave Search MCP server for the leadgen plugin. Asks for your API key once and stores it in secure storage.",
+  "author": { "name": "Peace", "url": "https://github.com/PeacexF" },
+  "repository": "https://github.com/PeacexF/claude-lead-gen",
+  "license": "MIT",
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "Brave Search API key",
+      "description": "Get one at https://brave.com/search/api (free tier).",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "mcpServers": {
+    "brave": {
+      "command": "npx",
+      "args": ["-y", "@brave/brave-search-mcp-server"],
+      "env": { "BRAVE_API_KEY": "${user_config.api_key}" }
+    }
+  }
+}

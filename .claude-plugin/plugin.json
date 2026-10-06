@@ -1,0 +1,14 @@
+{
+  "name": "leadgen",
+  "displayName": "Lead Gen",
+  "version": "0.1.0",
+  "description": "Lead generation and business research agent: ICP → sources → enrichment → verification → scoring → personalized outreach drafts, with every claim tied to collected data. Free-first, any market.",
+  "author": {
+    "name": "Peace",
+    "url": "https://github.com/PeacexF"
+  },
+  "homepage": "https://github.com/PeacexF/claude-lead-gen",
+  "repository": "https://github.com/PeacexF/claude-lead-gen",
+  "license": "MIT",
+  "keywords": ["lead-generation", "sales", "prospecting", "business-research", "osint", "enrichment", "outreach", "scraping"]
+}

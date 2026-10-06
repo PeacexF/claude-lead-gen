@@ -1,0 +1,24 @@
+{
+  "name": "leadgen-firecrawl",
+  "version": "0.1.0",
+  "description": "Firecrawl MCP server for the leadgen plugin. Asks for your API key once and stores it in secure storage.",
+  "author": { "name": "Peace", "url": "https://github.com/PeacexF" },
+  "repository": "https://github.com/PeacexF/claude-lead-gen",
+  "license": "MIT",
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "Firecrawl API key",
+      "description": "Get one at https://firecrawl.dev (free tier, no card).",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "mcpServers": {
+    "firecrawl": {
+      "command": "npx",
+      "args": ["-y", "firecrawl-mcp"],
+      "env": { "FIRECRAWL_API_KEY": "${user_config.api_key}" }
+    }
+  }
+}

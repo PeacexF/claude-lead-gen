@@ -1,0 +1,24 @@
+{
+  "name": "leadgen-apify",
+  "version": "0.1.0",
+  "description": "Apify MCP server for the leadgen plugin. Asks for your API key once and stores it in secure storage.",
+  "author": { "name": "Peace", "url": "https://github.com/PeacexF" },
+  "repository": "https://github.com/PeacexF/claude-lead-gen",
+  "license": "MIT",
+  "userConfig": {
+    "api_token": {
+      "type": "string",
+      "title": "Apify API key",
+      "description": "Get one at https://console.apify.com/settings/integrations (monthly free credit).",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "mcpServers": {
+    "apify": {
+      "command": "npx",
+      "args": ["-y", "@apify/actors-mcp-server"],
+      "env": { "APIFY_TOKEN": "${user_config.api_token}" }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-lead-gen",
+  "description": "Lead generation and business research toolkit for Claude Code, plus optional keyed provider plugins.",
+  "owner": {
+    "name": "Peace",
+    "url": "https://github.com/PeacexF"
+  },
+  "plugins": [
+    {
+      "name": "leadgen",
+      "source": "./",
+      "description": "Core lead-gen agent: skills, subagents, commands, hooks, the leadgen CLI, and the free Playwright MCP.",
+      "category": "productivity"
+    },
+    {
+      "name": "leadgen-firecrawl",
+      "source": "./providers/firecrawl",
+      "description": "Optional: Firecrawl MCP for JS-heavy crawling, search and structured extraction (API key; free tier).",
+      "category": "productivity"
+    },
+    {
+      "name": "leadgen-exa",
+      "source": "./providers/exa",
+      "description": "Optional: Exa MCP for semantic company/people search (API key; free tier).",
+      "category": "productivity"
+    },
+    {
+      "name": "leadgen-brave",
+      "source": "./providers/brave",
+      "description": "Optional: Brave Search MCP, an independent web index for discovery (API key; free tier).",
+      "category": "productivity"
+    },
+    {
+      "name": "leadgen-tavily",
+      "source": "./providers/tavily",
+      "description": "Optional: Tavily MCP for search + extraction tuned for agents (API key; free tier).",
+      "category": "productivity"
+    },
+    {
+      "name": "leadgen-apify",
+      "source": "./providers/apify",
+      "description": "Optional: Apify MCP for ready-made actors (Google Maps, LinkedIn public pages, review sites) (token; monthly free credit).",
+      "category": "productivity"
+    }
+  ]
+}
