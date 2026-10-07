@@ -4,6 +4,7 @@ A lead is a plain dict (see SPEC.md §4.2). Sources emit partial records; merge.
 """
 from __future__ import annotations
 
+import datetime
 import hashlib
 import re
 import urllib.parse
@@ -129,3 +130,12 @@ def empty_lead() -> dict:
         "site": {}, "signals": [], "sources": [], "score": None, "score_breakdown": {}, "tier": None,
         "notes": "", "status": "new",
     }
+
+
+def add_signal(lead: dict, typ: str, value, source: str | None, date: str | None = None) -> bool:
+    """Append a signal unless one of the same type is already there. Returns True when added."""
+    if any(s.get("type") == typ for s in lead.get("signals") or []):
+        return False
+    lead.setdefault("signals", []).append({"type": typ, "value": value, "source": source,
+                                           "date": date or datetime.date.today().isoformat()})
+    return True

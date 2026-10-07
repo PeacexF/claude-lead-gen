@@ -28,6 +28,14 @@ class Blocked(Exception):
     """The source answered with a rate limit, captcha, or access wall. Stop the run; don't retry hard."""
 
 
+class HTTPStatusError(Exception):
+    """Non-2xx/3xx answer from text()/json()/post_*(). Carries .code and .url (no open response body)."""
+
+    def __init__(self, url: str, code: int, detail: str = ""):
+        super().__init__(f"HTTP {code} at {url}" + (f": {detail}" if detail else ""))
+        self.url, self.code = url, code
+
+
 class UnsafeURL(urllib.error.URLError):
     """A public_only request pointed at a non-http(s) scheme or a host that resolves to a non-public address."""
 
@@ -237,7 +245,7 @@ class Fetcher:
     def text(self, url: str, **kw) -> str:
         status, _, text = self.request(url, **kw)
         if status >= 400:
-            raise urllib.error.HTTPError(url, status, f"HTTP {status}", {}, None)
+            raise HTTPStatusError(url, status)
         return text
 
     def json(self, url: str, **kw):
@@ -247,12 +255,12 @@ class Fetcher:
         body = json.dumps(payload).encode()
         status, _, text = self.request(url, data=body, headers={"Content-Type": "application/json", **(headers or {})}, **kw)
         if status >= 400:
-            raise urllib.error.HTTPError(url, status, f"HTTP {status}: {text[:300]}", {}, None)
+            raise HTTPStatusError(url, status, text[:300])
         return json.loads(text)
 
     def post_form(self, url: str, form: dict, **kw) -> str:
         body = urllib.parse.urlencode(form).encode()
         status, _, text = self.request(url, data=body, headers={"Content-Type": "application/x-www-form-urlencoded"}, **kw)
         if status >= 400:
-            raise urllib.error.HTTPError(url, status, f"HTTP {status}: {text[:300]}", {}, None)
+            raise HTTPStatusError(url, status, text[:300])
         return text

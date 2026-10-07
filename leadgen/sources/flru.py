@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import html as htmllib
 import re
-import urllib.error
+
+from ..core.http import HTTPStatusError
 
 NAME = "flru"
 KIND = "demand"
@@ -67,7 +68,7 @@ def collect_unit(ctx, unit: dict) -> list[dict]:
     for page in range(1, unit["max_pages"] + 1):
         try:
             h = ctx.fetcher.text(f"https://www.fl.ru/projects/page-{page}/", ttl=20 * 3600)
-        except urllib.error.HTTPError as e:
+        except HTTPStatusError as e:
             if e.code == 404:
                 break
             raise

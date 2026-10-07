@@ -18,7 +18,7 @@ import urllib.error
 import urllib.parse
 
 from ..core import schema
-from ..core.http import UnsafeURL
+from ..core.http import HTTPStatusError, UnsafeURL
 from . import tech
 
 INNER_PATH = re.compile(
@@ -41,11 +41,25 @@ DE_HR = re.compile(r"\b(HR[AB]\s?\d{3,6}(?:\s?[A-Z])?)\b")
 LEGAL_NAME = re.compile(
     r"((?:ООО|ОАО|АО|ЗАО|ПАО|АНО)\s*[«\"“][^»\"”]{2,60}[»\"”]|(?:ИП|Индивидуальный предприниматель)\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){0,2}|"
     r"\b[A-Z][\w&.,'\- ]{1,60}?\s(?:Ltd|Limited|LLC|L\.L\.C\.|Inc\.?|GmbH|UG|AG|S\.?L\.?|S\.?A\.?|Lda\.?|S\.?r\.?l\.?|B\.?V\.?|SAS|SARL|Sp\. z o\.o\.|Oy|AB|ApS|AS|plc)\b)")
-ROLE = re.compile(r"\b(founder|co-?founder|owner|ceo|chief [a-z]+ officer|managing director|director|general manager|"
-                  r"head of [a-z ]+|partner|principal|president|vp [a-z ]+|cto|cmo|coo|cfo|"
-                  r"gesch[äa]ftsf[üu]hrer|inhaber|propriet[áa]rio|director[a]? general|g[ée]rant|"
-                  r"генеральный директор|директор|основатель|владелец|руководитель)\b", re.I)
+ROLE_RX = (r"founder|co-?founder|owner|ceo|chief \w+ officer|managing director|director|"
+           r"(?:general|practice|office|operations|marketing|sales|clinic|studio) manager|"
+           r"head of \w+|partner|principal|president|vp (?:of )?\w+|cto|cmo|coo|cfo|"
+           r"gesch[äa]ftsf[üu]hrer|inhaber|propriet[áa]rio|director[a]? general|g[ée]rant|"
+           r"генеральный директор|директор|основатель|владелец|руководитель")
+ROLE = re.compile(rf"\b({ROLE_RX})\b", re.I)
 PERSON = re.compile(r"\b([A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'\-]{1,20}(?:\s[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'\-]{1,20}){1,2}|[А-ЯЁ][а-яё]{1,20}\s[А-ЯЁ][а-яё]{1,20}(?:\s[А-ЯЁ][а-яё]{1,20})?)\b")
+JOB_BOARD = re.compile(
+    r"https?://(?:(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io/(?:embed/job_board\?for=)?(?P<greenhouse>[\w-]+)|"
+    r"jobs\.(?:eu\.)?lever\.co/(?P<lever>[\w-]+)|jobs\.ashbyhq\.com/(?P<ashby>[\w.-]+)|"
+    r"apply\.workable\.com/(?P<workable>[\w-]+)|(?P<recruitee>[\w-]+)\.recruitee\.com|"
+    r"(?P<personio>[\w-]+)\.jobs\.personio\.(?:de|com)|(?P<bamboohr>[\w-]+)\.bamboohr\.com/(?:careers|jobs))", re.I)
+# words that sit next to names on team pages but aren't part of them; text is cut at these before name matching
+NOT_NAME_RX = (r"our|the|meet|team|about|contact|practice|office|clinic|studio|manager|dentist|doctor|dr|lead|senior|"
+               r"junior|head|chief|officer|principal|associate|assistant|founder|co-founder|owner|partner|director|"
+               r"president|staff|services|home|hygienist|nurse|receptionist|specialist|consultant|engineer|designer|"
+               r"developer|accountant|lawyer|attorney|solicitor|advisor|coordinator|executive|managing|general|"
+               r"operations|marketing|sales|customer|support|of|and|we|call|email|phone|leadership|tel")
+NAME_CUT = re.compile(rf"\b(?:{ROLE_RX}|{NOT_NAME_RX})\b|[|•·,;:()&/–—.]|\s-\s", re.I)
 COPYRIGHT = re.compile(r"(?:©|&copy;|copyright)[^0-9]{0,30}(?:\d{4}\s*[-–—]\s*)?(20\d\d|19\d\d)", re.I)
 
 
@@ -82,16 +96,28 @@ def meta(html: str, name: str) -> str | None:
 
 
 def people_from(text: str) -> list[dict]:
-    """Name + role pairs that sit next to each other ('Jane Smith, Founder' / 'CEO: John Doe'). Best effort."""
+    """Name + role pairs that sit next to each other ('Jane Smith, Founder' / 'CEO: John Doe'). Best effort.
+
+    The text around each role mention is cut at role and title words, so 'Jane Doe Founder Mark Example Practice
+    Manager' yields Jane Doe → founder and Mark Example → practice manager, not 'Example Practice Manager'.
+    The nearest name wins, preferring one just before the role (card layout) over one after it ('CEO: John').
+    """
     found = []
     for m in ROLE.finditer(text):
-        window = text[max(0, m.start() - 60): m.end() + 60]
-        names = [n for n in PERSON.findall(window) if not ROLE.search(n) and len(n.split()) <= 3]
-        if names:
-            # nearest name to the role mention
-            pos = m.start() - max(0, m.start() - 60)
-            best = min(names, key=lambda n: abs(window.find(n) - pos))
-            found.append({"name": best.strip(), "role": m.group(1).strip(), "source": "site"})
+        before = text[max(0, m.start() - 60): m.start()]
+        after = text[m.end(): m.end() + 60]
+        segs_before = [x.strip() for x in NAME_CUT.split(before)]
+        segs_after = [x.strip() for x in NAME_CUT.split(after)]
+        cand = None
+        # card layout: the last non-empty segment before the role ("Jane Doe | Founder")
+        if fm := PERSON.fullmatch(next((x for x in reversed(segs_before) if x), "")):
+            cand = fm.group(1)
+        if not cand:  # "CEO: John Doe"
+            first = next((x for x in segs_after if x), "")
+            if fm := PERSON.fullmatch(first):
+                cand = fm.group(1)
+        if cand and len(cand.split()) <= 3:
+            found.append({"name": cand.strip(), "role": m.group(1).strip(), "source": "site"})
     uniq = {}
     for p in found:
         uniq.setdefault(p["name"], p)
@@ -111,7 +137,7 @@ def fetch(fetcher, url: str) -> tuple[str, str, bool]:
                                               public_only=True)
         cert_ok = False
     if status >= 400:
-        raise urllib.error.HTTPError(url, status, f"HTTP {status}", {}, None)
+        raise HTTPStatusError(url, status)
     return final, html, cert_ok
 
 
@@ -120,7 +146,7 @@ def crawl(fetcher, site: str, max_inner: int = 4) -> dict:
     res = {"url": site, "reachable": False, "checked": datetime.date.today().isoformat()}
     try:
         final, home, cert_ok = fetch(fetcher, site)
-    except urllib.error.HTTPError as e:
+    except HTTPStatusError as e:
         return {**res, "status": e.code, "error": "HTTPError"}
     except Exception as e:
         return {**res, "error": type(e).__name__}
@@ -188,6 +214,12 @@ def crawl(fetcher, site: str, max_inner: int = 4) -> dict:
         ids["handelsregister"] = hr[0] if len(hr) == 1 else hr
     legal_names = list(dict.fromkeys(re.sub(r"\s+", " ", m).strip() for m in LEGAL_NAME.findall(alltext)))[:3]
 
+    boards = []
+    for m in JOB_BOARD.finditer(allhtml):
+        ats, token = next((k, v) for k, v in m.groupdict().items() if v)
+        if token.lower() not in ("embed", "js", "api", "www") and (ats, token.lower()) not in {(b["ats"], b["token"]) for b in boards}:
+            boards.append({"ats": ats, "token": token.lower(), "url": m.group(0)})
+
     found_tech = sorted(set(tech.detect(allhtml)))
     years = [int(y) for y in COPYRIGHT.findall(low_home)]
     return {
@@ -203,7 +235,7 @@ def crawl(fetcher, site: str, max_inner: int = 4) -> dict:
         "builder": tech.builder(found_tech), "tech": found_tech,
         "pages": [u for u, _ in pages],
         "emails": emails[:8], "phones": phones[:5], "socials": socials,
-        "registry_ids": ids, "legal_names": legal_names, "people": people_from(" ".join(text_of(h) for _, h in pages[1:]) or alltext),
+        "registry_ids": ids, "legal_names": legal_names, "job_boards": boards[:4], "people": people_from(" ".join(text_of(h) for _, h in pages[1:]) or alltext),
         "bytes": len(home),
     }
 
@@ -212,7 +244,7 @@ def apply(lead: dict, r: dict) -> dict:
     """Fold a crawl result into the lead (contacts appended, site block replaced)."""
     lead["site"] = {k: r.get(k) for k in ("url", "final_url", "reachable", "status", "error", "https", "cert_ok", "title",
                                           "description", "lang", "mobile", "has_form", "privacy_link", "cookie_notice",
-                                          "copyright_year", "builder", "tech", "pages", "checked")}
+                                          "copyright_year", "builder", "tech", "pages", "job_boards", "checked")}
     if not r.get("reachable"):
         return lead
     have = {e["value"] for e in lead.get("emails") or []}
