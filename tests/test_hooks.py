@@ -100,7 +100,7 @@ class GuardTest(unittest.TestCase):
             "grep send_mode campaigns/c/campaign.toml": None,
             "cat campaigns/c/campaign.toml": None,
             "leadgen send c --dry-run": None,
-            "grep -n approve leadgen/outreach/send.py": None,
+            "leadgen send c $(printf -- '--%s' approve) ab12": "ask",            # flag built at run time
         }
         for cmd, want in cases.items():
             with self.subTest(cmd=cmd):
@@ -113,6 +113,8 @@ class GuardTest(unittest.TestCase):
                                       "new_string": 'send_mode = "auto"'}), "ask")
         self.assertEqual(ask("Write", {"file_path": toml, "content": "[outreach]\nsend_mode = 'auto'\n"}), "ask")
         self.assertIsNone(ask("Edit", {"file_path": toml, "old_string": "limit = 10", "new_string": "limit = 50"}))
+        self.assertEqual(ask("Write", {"file_path": str(self.root / "go.sh"),
+                                       "content": "leadgen send c --approve ab12\n"}), "ask")
         gi = self.root / ".gitignore"
         gi.write_text("campaigns/\nsuppression.txt\n")
         self.assertEqual(ask("Write", {"file_path": str(gi), "content": "suppression.txt\n"}), "ask")

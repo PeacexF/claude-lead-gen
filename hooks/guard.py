@@ -9,18 +9,23 @@ Send gate. Sending needs a human in the loop unless the user chose send_mode = "
     send chained with other commands                      ASK: the chain could change send_mode first
     campaign or send_mode unreadable / unknown            ASK
   Bash, raw-text fallback for indirection the parser can't see ($(...), sh -c, eval, python -c, ...):
-    mentions leadgen and an --approve flag / approve=     ASK
+    mentions leadgen and "appro" anywhere (flags built from strings, $A, printf...)  ASK
     any command that may write campaign.toml (not plainly read-only, or redirects)   ASK
   Edit / Write of campaign.toml that sets send_mode = "auto"                          ASK
+  Edit / Write of any file whose new text mentions leadgen + send + appro (a script to run later)  ASK
 PII guard. Campaign data is personal data and stays out of git.
   `git add` of campaigns/, suppression.txt, *.leads.*, leadgen_sources/*_fixtures/ (any case)   DENY
   `git add -f` on a broad path (., -A, globs, :(magic) pathspecs, a directory, --pathspec-from-file)  DENY
   `git add` in the same command that touches ignore rules (.gitignore, info/exclude, excludesFile)  DENY
   Edit / Write of .gitignore that drops a campaigns/ suppression.txt *.leads.* entry               ASK
 
-This is a guardrail against mistakes and casual workarounds, not a sandbox: shell is too expressive for a hook to
-parse completely. It never answers "allow", so a matched safe segment can't approve anything chained with it.
-The CLI enforces the rest itself: send_mode, preview batches with content hashes, caps, suppression.
+Threat model. This is a guardrail against mistakes and casual workarounds, not a sandbox. Shell is too expressive
+for a hook to parse completely (encoded commands, copied campaign directories, scripts assembled at run time), and
+an agent that has SMTP credentials in its environment can reach the mail server without leadgen at all. The hard
+boundary for "a human approves every send" is: keep SMTP_* out of the Claude Code session and run
+`leadgen send <slug> --approve <id>` yourself, in your own terminal. The guard never answers "allow", so a matched
+safe segment can't approve anything chained with it. The CLI enforces the rest itself: send_mode, preview batches
+with content hashes, caps, suppression.
 """
 from __future__ import annotations
 
@@ -144,7 +149,7 @@ def read_only(cmd: str) -> bool:
 
 def raw_fallback(cmd: str) -> tuple[str, str] | None:
     """Catch what tokenizing can't see: $(...), sh -c '...', eval, python -c, xargs, write-then-move."""
-    if "leadgen" in cmd and (APPROVE_FLAG.search(cmd) or re.search(r"\bapprove\s*=", cmd)):
+    if "leadgen" in cmd and (APPROVE_FLAG.search(cmd) or re.search(r"appro", cmd, re.I)):
         return "ask", "this command may send an approved leadgen outreach batch (found leadgen + approve)"
     if "campaign.toml" in cmd and not read_only(cmd):
         return "ask", ("this command may change a campaign.toml, which holds send_mode (who approves sending); "
@@ -190,6 +195,8 @@ def decide_edit(tool: str, inp: dict) -> tuple[str, str] | None:
     if path.name == "campaign.toml" and re.search(r"send_mode\s*=\s*['\"]auto['\"]", new):
         return "ask", (f"setting send_mode = \"auto\" in {path} lets leadgen send email without asking; "
                        "that's the user's decision")
+    if "leadgen" in new and re.search(r"\bsend\b", new) and re.search(r"appro", new, re.I):
+        return "ask", f"{path} would contain a leadgen send approval; running it later would send email"
     if path.name == ".gitignore":
         if old is None:
             try:
