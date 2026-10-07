@@ -1,6 +1,6 @@
-# Current state — 2026-10-07
+# Current state — 2026-10-08
 
-Build paused at the owner's request after milestone 6 (outreach) of [SPEC.md](SPEC.md) §11; the CLI is next. This file says what
+Milestones 1–6 of [SPEC.md](SPEC.md) §11 are done and the CLI exists; skills/agents/commands/hooks are next. This file says what
 exists, what was verified, and the exact next steps, so the next session can pick up without re-deriving anything.
 
 ## Done
@@ -13,6 +13,7 @@ exists, what was verified, and the exact next steps, so the next session can pic
 | 4. Enrichment | **Done.** `enrich/site.py` (crawl: contacts, socials, legal ids, people, tech, site health, ATS job-board links), `enrich/tech.py` (~90 fingerprints), `enrich/dns.py` (MX/SPF/DMARC via DoH → mail provider, sending tools, `emails[].verified="mx"`, `no_mx`), `enrich/jobs.py` (Greenhouse/Lever/Ashby; guessed board tokens must prove ownership), `enrich/registry.py` (RKN by ИНН; Companies House profile + officers, keyed), `enrich/__init__.py` (thread-pool runner, per-step resume, checkpoints every 25 leads, `Blocked` turns a step off, `no_website` signal). Lead gets extra blocks `dns`, `jobs`, `registry` beyond §4.2. |
 | 5. Scoring | **`leadgen/score.py` done** (ops over dotted paths, signal/tech/category, negative points, `disqualify`, tiers, formula). `export`/`run`/`status` wait for the CLI. |
 | 6. Outreach | **Done.** `outreach/drafts.py` (store, validation: evidence `[{fact, source}]` required, deep links), `outreach/suppression.py`, `outreach/compliance.py` (profiles can-spam/gdpr/uk-pecr/casl/ru → required fields, footer; `ru` needs `ru_consent = true`), `outreach/send.py` (off/confirm/auto, batches with content hashes + 24 h expiry, caps, idempotent `sent.jsonl`, follow-ups after `followup_days`, threading headers, SMTP from env). |
+| CLI | **Done (2026-10-08) except `market`.** `leadgen/cli.py` + `bin/leadgen` (bash wrapper, resolves symlinks, needs Python ≥ 3.11, runs `python -P` so files in the workspace can't shadow modules) + `python -m leadgen`. Commands: `init, sources, collect, merge, enrich, score, export, run, status, mark, drafts add/list/show, send, suppress, doctor, setup 2gis`; `--json` on every command (result on stdout, progress on stderr). Exit codes: 1 error, 2 usage, 3 send refused. `drafts add` moves leads new → drafted; `mark … suppressed` also adds the lead's domain (else its emails/phones) to `suppression.txt`. |
 | Templates | `templates/campaign.toml` (sources, enrich, scoring rules, tiers, outreach send modes) and `templates/brief.md`. |
 
 ### Verified so far
@@ -23,17 +24,15 @@ exists, what was verified, and the exact next steps, so the next session can pic
 - Smoke tests: merge collapses the same domain across sources; INN checksum; tech detection; a live crawl of
   a real site found WordPress/WooCommerce/GTM/CF7/CookieYes.
 - Live (2026-10-07): MX/provider for real domains, Greenhouse/Ashby boards (and a common-token guess correctly rejected), RKN lookup, crawl through the SSRF-guarded opener.
-- `python3 -m unittest`: 40 offline tests (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating).
-- **Not yet run end to end:** no adapter has been run through the runner into a campaign, because the CLI doesn't exist yet.
+- `python3 -m unittest`: 45 offline tests (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
+  merge, CLI end to end on the `file` source).
+- **Live end to end (2026-10-08):** `bin/leadgen run` on OSM dentists in Coimbra (limit 10): 10 leads, 5 sites crawled, MX checked,
+  tiers A3/C4/D3, CSV exported; re-run fully cached (0.1 s, 0 leads re-enriched). Drafts/send not run live (no SMTP).
 
 ## Not started
 
-1. **`leadgen/cli.py` + `bin/leadgen`** (on PATH when the plugin is enabled): `init, sources, collect, merge, enrich,
-   score, export, run, status, drafts add/list/show, send [--dry-run] [--approve], suppress, mark <lead> <status>,
-   doctor, setup 2gis, market` (market research: port claude-kit `normalize_orders.py`, `label_orders.py`,
-   `clusters.py`, `segments.py`, `score.py` as generic, config-driven versions). `--json` everywhere. All the library
-   functions it needs exist: `sources.run_source/load_raw`, `core.merge.merge`, `enrich.run`, `score.score_all`,
-   `store.write_csv`, `outreach.drafts.Drafts`, `outreach.send.run`, `outreach.suppression.Suppression`.
+1. **`leadgen market`** (the one CLI command left): port claude-kit `normalize_orders.py`, `label_orders.py`, `clusters.py`,
+   `segments.py`, `score.py` as generic, config-driven versions over `sources.load_raw(camp, "demand")`.
 2. **Skills** (`skills/*/SKILL.md`): lead-gen, icp-builder, lead-sourcing, company-research, contact-discovery,
    lead-scoring, outreach, niche-research (port claude-kit's, generalized), compliance.
 3. **Agents** (`agents/`): company-researcher, lead-qualifier, outreach-writer, market-scanner, fact-checker.
@@ -43,7 +42,10 @@ exists, what was verified, and the exact next steps, so the next session can pic
    `leadgen send`, `leadgen.cli send`, `bin/leadgen send`. PII guard on `git add` (-f, campaigns/, suppression.txt, *.leads.*).
 6. **CI:** GitHub Actions running `python -m unittest` and `claude plugin validate`.
 7. **Docs:** README (install, quickstart), `docs/architecture.md`, `configuration.md`, `sources.md`, `compliance.md`.
-8. **Live smoke test:** one small OSM campaign end to end, then fix whatever breaks.
+8. **Live smoke test:** OSM → CSV done (see Verified). Still to run live: `jobs`/`registry` steps, a RU source, drafts → `send` in
+   confirm mode against a test SMTP inbox.
+9. **`parser-builder` skill:** guidebook for building a parser for one specific source, per
+   [docs/plans/parser-builder-skill.md](docs/plans/parser-builder-skill.md) (core changes first: workspace adapters, `LayoutChanged`, `leadgen inspect`).
 
 ## Security findings (fixed 2026-10-07)
 1. **CSV formula injection** in `store.write_csv`: string cells starting with `= + - @ \t \r` get a `'` prefix
@@ -56,15 +58,17 @@ exists, what was verified, and the exact next steps, so the next session can pic
 ## Known issues / notes
 - `.gitignore` has entries from the original template (`main`, `server`, `collector`, `context*`) that could
   shadow future paths with those names. Nothing uses them yet; review before adding such paths.
-- `twogis` installs parser-2gis under `$LEADGEN_TOOLS` or `~/.local/share/leadgen/tools` (outside the plugin dir,
-  so plugin updates don't wipe it). The `leadgen setup 2gis` command that does this is not written yet.
+- `leadgen setup 2gis` installs parser-2gis under `$LEADGEN_TOOLS` or `~/.local/share/leadgen/tools` (outside the plugin dir,
+  so plugin updates don't wipe it). Written but not yet run on a clean machine.
+- Fixed 2026-10-08: re-merging dropped the `dns`/`jobs`/`registry` blocks and reset `emails[].verified`, so every
+  `leadgen run` redid those lookups (`tests/test_merge.py`). Any new enrichment block must be added to the carry-over
+  list in `merge.merge`.
 - `site.people_from` is a heuristic. Treat its output as unverified until the contact-discovery skill checks it.
-- `osm.area_clause` returns a tuple but is annotated `-> str`. Cosmetic; fix it when touching the file.
 - SEC EDGAR returned 403 without a contact User-Agent, so it was left out of v1 sources. It needs a UA with an email if added.
 
 ## Resume
 ```sh
 cd claude-lead-gen
-python3 -c "import leadgen.sources as s; [print(m.NAME, s.readiness(m)) for m in s.all_sources()]"
+bin/leadgen doctor && bin/leadgen sources
 ```
-Run `python3 -m unittest`, then continue with "Not started" item 1. Commit and push after each item, to `main` (owner decision).
+Run `python3 -m unittest`, then continue with "Not started" item 2 (skills). Commit and push after each item, to `main` (owner decision).

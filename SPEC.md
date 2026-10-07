@@ -138,6 +138,7 @@ machine-readable results for Claude.
 | `outreach` | Personalized drafts that use evidence hooks, sequences, channel choice, and send modes. |
 | `niche-research` | Ported from claude-kit, generalized: demand × gap × reach scans, niche cards with evidence. |
 | `compliance` | GDPR/PECR, CAN-SPAM, CASL, 152-ФЗ/38-ФЗ, source ToS; per-geo checklist that runs before outreach. |
+| `parser-builder` | Guidebook for building a parser (source adapter) for one specific source: qualify it (ToS, login, captcha), find the data path, units and pagination, synthetic fixtures, offline tests, small live check, registration. Workspace adapters (`<workspace>/sources/<name>.py`) for one-off sources. [Plan](docs/plans/parser-builder-skill.md). |
 
 ### 5.2 Agents (`agents/`)
 
