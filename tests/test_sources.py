@@ -42,9 +42,11 @@ class SourcesTest(unittest.TestCase):
         env = mock.patch.dict(os.environ, {"LEADGEN_HOME": str(self.root)})
         env.start()
         self.addCleanup(env.stop)
-        (self.root / "sources").mkdir()
-        (self.root / "sources/chamber.py").write_text(ADAPTER)
+        self.ws = self.root / "leadgen_sources"
+        self.ws.mkdir()
+        (self.ws / "chamber.py").write_text(ADAPTER)
         self.camp = Campaign.create("t", root=self.root)
+        self.camp.config["sources"] = [{"type": "chamber"}]
         self.logs: list[str] = []
 
     def cli(self, *argv):
@@ -58,7 +60,8 @@ class SourcesTest(unittest.TestCase):
         stats = sources.run_source(self.camp, spec, log=self.logs.append)
         self.assertEqual((stats["units"], stats["rows"]), (2, 3))
         self.assertEqual(len(sources.load_raw(self.camp, log=self.logs.append)), 3)
-        self.assertEqual(sources.load("chamber", self.root).WORKSPACE, str((self.root / "sources/chamber.py").resolve()))
+        self.assertEqual(sources.load("chamber", self.root, workspace_ok=True).WORKSPACE, str((self.ws / "chamber.py").resolve()))
+        (self.camp.dir / "campaign.toml").write_text('[[sources]]\ntype = "chamber"\npages = {}\n')
         code, res = self.cli("inspect", "t")
         self.assertEqual(code, 0)
         self.assertEqual(res["chamber"]["rows"], 3)
@@ -76,15 +79,30 @@ class SourcesTest(unittest.TestCase):
     def test_unknown_and_bad_names(self):
         for name in ("nope", "../etc", "Chamber"):
             with self.subTest(name=name), self.assertRaises(KeyError):
-                sources.load(name, self.root)
-        (self.root / "sources/broken.py").write_text("NAME = 'other'\n")
+                sources.load(name, self.root, workspace_ok=True)
+        (self.ws / "broken.py").write_text("NAME = 'other'\n")
         with self.assertRaises(KeyError):
-            sources.load("broken", self.root)
+            sources.load("broken", self.root, workspace_ok=True)
+
+    def test_workspace_code_runs_only_when_a_campaign_names_it(self):
+        marker = self.root / "ran"
+        (self.ws / "evil.py").write_text(f"open({str(marker)!r}, 'w').close()\n")
+        (self.root / "sources").mkdir()  # a generic folder name is never a workspace adapter dir
+        (self.root / "sources/osm2.py").write_text(f"open({str(marker)!r}, 'w').close()\n")
+        with self.assertRaises(KeyError):
+            sources.load("evil", self.root)                 # not named by a campaign
+        code, res = self.cli("sources")                     # listing never imports
+        self.assertIn("evil", [r["name"] for r in res["sources"]])
+        (self.camp.dir / "raw/evil/2026-01-01").mkdir(parents=True)  # raw data for an unconfigured adapter
+        (self.camp.dir / "raw/evil/2026-01-01/x.jsonl").write_text('{"name": "x"}\n')
+        sources.load_raw(self.camp, log=self.logs.append)
+        self.assertFalse(marker.exists())
+        self.assertTrue(any("raw/evil skipped" in m for m in self.logs))
 
     def test_template_is_a_working_adapter(self):
         src = (PLUGIN_ROOT / "templates/source.py").read_text().replace('NAME = "TODO_name"', 'NAME = "tmpl"')
-        (self.root / "sources/tmpl.py").write_text(src)
-        mod = sources.load("tmpl", self.root)
+        (self.ws / "tmpl.py").write_text(src)
+        mod = sources.load("tmpl", self.root, workspace_ok=True)
         unit = mod.units({"queries": ["dentist"], "locations": ["Porto"], "max_pages": 3})[0]
         page = ('<div class="TODO-result-item"><h2>Clinica <b>A</b></h2><a href="/company/a-1">x</a>'
                 '<span data-website="https://a.test/"></span><a href="tel:+351 22 000 0000">call</a></div>')

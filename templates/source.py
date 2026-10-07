@@ -1,6 +1,6 @@
 """<Source name>: <what it lists> (<coverage>). Template for a new source adapter; see the parser-builder skill.
 
-Copy to <workspace>/sources/<name>.py (one-off source) or leadgen/sources/<name>.py (built in; add it to MODULES).
+Copy to <workspace>/leadgen_sources/<name>.py (one-off source) or leadgen/sources/<name>.py (built in; add it to MODULES).
 Replace every TODO, delete what you don't need, and keep the docstring accurate:
   - where the data comes from (API / embedded JSON / HTML) and why that path was chosen
   - pagination and the stop rule

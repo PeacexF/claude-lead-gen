@@ -48,9 +48,10 @@ type`).
 
 Two homes for an adapter:
 - **Built in** (`leadgen/sources/<name>.py`): broadly useful sources, added by PR with **synthetic** fixtures.
-- **Workspace** (`<workspace>/sources/<name>.py`): one-off or personal sources, loaded only from that directory
-  (`[[sources]] type = "<name>"` runs one; `leadgen sources` lists them). Built-in names take precedence, and
-  every workspace adapter's path is printed when it loads. Real-page fixtures go in `sources/<name>_fixtures/`,
+- **Workspace** (`<workspace>/leadgen_sources/<name>.py`): one-off or personal sources. It is workspace code, so it
+  loads only when the campaign's `[[sources]]` names it: never to list it (`leadgen sources` shows names only),
+  never for an unconfigured `raw/` directory. The directory name is distinctive on purpose, so a generic `sources/`
+  folder in some repo never runs. Built-in names win, and every load prints its path. Real-page fixtures go in `leadgen_sources/<name>_fixtures/`,
   which `leadgen init` gitignores.
 
 ## 3. The guidebook workflow (`skills/parser-builder/SKILL.md`)
@@ -83,8 +84,8 @@ Two homes for an adapter:
 
 | # | Change | Where |
 |---|---|---|
-| 1 | Workspace adapters: `load(name)` falls back to `<workspace>/sources/<name>.py` (name must match `[a-z][a-z0-9_]*`) | `leadgen/sources/__init__.py` |
-| 2 | `LayoutChanged` error; the runner reports it per unit as "layout changed, fix the parser" and keeps going | `core/http.py`, `sources/__init__.py` |
+| 1 | Workspace adapters: `load(name)` falls back to `<workspace>/leadgen_sources/<name>.py` only when the campaign names it (name must match `[a-z][a-z0-9_]*`) | `leadgen/sources/__init__.py` |
+| 2 | `LayoutChanged` error; the runner reports it per unit as "layout changed, fix the parser" and keeps going | `sources/__init__.py` |
 | 3 | `leadgen inspect <slug> [--source]`: rows, fill rate per field, 3 sample rows | `leadgen/cli.py` |
 | 4 | Adapter template | `templates/source.py` |
 | 5 | Tests for the loader, `LayoutChanged`, and inspect | `tests/` |

@@ -17,8 +17,10 @@ The runner writes raw/<source>/<date>/<unit_key>.jsonl and skips units already c
 (raised by an adapter's parser when the page/API structure it expects is gone) fails the unit loudly instead of
 returning 0 rows; two in a row stop the source.
 
-Workspace adapters: <workspace>/sources/<name>.py with the same contract, for one-off sources that don't belong in
-the plugin (see the parser-builder skill). Built-in names win; the path of every workspace adapter is logged on load.
+Workspace adapters: <workspace>/leadgen_sources/<name>.py with the same contract, for one-off sources that don't belong
+in the plugin (see the parser-builder skill). They are code from the workspace, so they load only when the campaign's
+campaign.toml names them in [[sources]] (never to list them, never for an unconfigured raw/ directory), and every load
+is logged with its path. Built-in names win.
 """
 from __future__ import annotations
 
@@ -48,8 +50,11 @@ class LayoutChanged(Exception):
     """The structure a parser relies on is missing (markup, JSON shape, endpoint). Fix the adapter; don't retry."""
 
 
+WORKSPACE_DIR = "leadgen_sources"  # distinctive on purpose: a generic sources/ folder in some repo must never run
+
+
 def workspace_dir(root: pathlib.Path | None = None) -> pathlib.Path:
-    return (root or workspace()) / "sources"
+    return (root or workspace()) / WORKSPACE_DIR
 
 
 def _load_file(path: pathlib.Path):
@@ -73,14 +78,19 @@ def _load_file(path: pathlib.Path):
     return mod
 
 
-def load(name: str, root: pathlib.Path | None = None):
+def load(name: str, root: pathlib.Path | None = None, workspace_ok: bool = False):
+    """A built-in adapter, or (workspace_ok: the campaign config names it) a workspace adapter."""
     if name in MODULES:
         return importlib.import_module(f"{__name__}.{name}")
     path = workspace_dir(root) / f"{name}.py"
-    if re.fullmatch(r"[a-z][a-z0-9_]*", name) and path.is_file():
+    if workspace_ok and re.fullmatch(r"[a-z][a-z0-9_]*", name) and path.is_file():
         return _load_file(path)
     raise KeyError(f"unknown source {name!r}; built in: {', '.join(MODULES)}; "
-                   f"or write {path} (parser-builder skill)")
+                   f"or write {path} and name it in [[sources]] (parser-builder skill)")
+
+
+def configured(camp: Campaign) -> set[str]:
+    return {s.get("type") for s in camp.config.get("sources") or [] if s.get("type")}
 
 
 def workspace_names(root: pathlib.Path | None = None) -> list[str]:
@@ -89,9 +99,9 @@ def workspace_names(root: pathlib.Path | None = None) -> list[str]:
         if d.is_dir() else []
 
 
-def all_sources(root: pathlib.Path | None = None, include_workspace: bool = False):
-    names = MODULES + (workspace_names(root) if include_workspace else [])
-    return [load(n, root) for n in names]
+def all_sources():
+    """Built-in adapters. Workspace adapters are listed by name only (workspace_names), never imported to list them."""
+    return [load(n) for n in MODULES]
 
 
 def readiness(mod) -> str | None:
@@ -126,7 +136,7 @@ def already_collected(camp: Campaign, source: str, key: str, today_only: bool = 
 def run_source(camp: Campaign, spec: dict, refresh: bool = False, log=None) -> dict:
     log = log or (lambda m: print(m, file=sys.stderr))
     name = spec["type"]
-    mod = load(name, camp.root)
+    mod = load(name, camp.root, workspace_ok=True)  # spec comes from this campaign's [[sources]]
     why = readiness(mod)
     if why:
         log(f"[{name}] skipped: {why}")
@@ -190,10 +200,10 @@ def collected_sources(camp: Campaign) -> list[str]:
 def load_raw(camp: Campaign, kind: str = "businesses", log=None) -> list[dict]:
     """All raw rows of the given kind, from every source that has raw data in this campaign."""
     log = log or (lambda m: print(m, file=sys.stderr))
-    rows = []
+    rows, named = [], configured(camp)
     for name in collected_sources(camp):
         try:
-            mod = load(name, camp.root)
+            mod = load(name, camp.root, workspace_ok=name in named)
         except KeyError as e:
             log(f"[merge] raw/{name} skipped: {e}")
             continue

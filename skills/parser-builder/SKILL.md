@@ -10,8 +10,9 @@ The runner then caches it, throttles it, resumes it, merges its rows into leads 
 bundled adapters. Follow the steps in order. Steps 1 and 2 decide whether there's anything to build.
 
 Two homes:
-- **Workspace** `<workspace>/sources/<name>.py`: the default. One-off, personal, or niche sources. It loads when
-  `campaign.toml` has `[[sources]] type = "<name>"`.
+- **Workspace** `<workspace>/leadgen_sources/<name>.py`: the default. One-off, personal, or niche sources. It is
+  code from the workspace, so it loads **only** when the campaign's `campaign.toml` has `[[sources]] type = "<name>"`.
+  `leadgen sources` lists it by name without running it.
 - **Built in** `leadgen/sources/<name>.py`: only for sources useful to most users, and only via a PR with synthetic
   fixtures (step 4). Add the name to `MODULES`.
 
@@ -71,7 +72,7 @@ See [references/patterns.md](references/patterns.md) for code for each pattern.
   Add a "no results" page if the source has one.
 - For tests, **write synthetic fixtures**: the same markup or JSON shape, with invented businesses (`*.test`
   domains, `+000` phones). Real pages hold personal data and must not be committed. Workspace adapters keep
-  fixtures next to them (`sources/<name>_fixtures/`, gitignored with the workspace data). Built-in adapters keep
+  fixtures next to them (`leadgen_sources/<name>_fixtures/`, which `leadgen init` gitignores). Built-in adapters keep
   them in `tests/fixtures/<name>/`.
 - Trim fixtures to the parts the parser reads, so it's obvious what the parser depends on.
 

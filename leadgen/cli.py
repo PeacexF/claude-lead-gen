@@ -71,12 +71,17 @@ def cmd_init(args):
 
 def cmd_sources(args):
     rows = []
-    for m in sources.all_sources(include_workspace=True):
+    for m in sources.all_sources():
         why = sources.readiness(m)
         rows.append({"name": m.NAME, "kind": m.KIND, "regions": m.REGIONS, "env": list(m.ENV), "ready": why is None,
-                     "why_not": why, "about": m.ABOUT, "workspace": getattr(m, "WORKSPACE", None)})
+                     "why_not": why, "about": m.ABOUT, "workspace": None})
+    for n in sources.workspace_names():  # listed, not imported: workspace code runs only when a campaign names it
+        path = sources.workspace_dir() / f"{n}.py"
+        rows.append({"name": n, "kind": "?", "regions": "workspace", "env": [], "ready": None, "why_not": None,
+                     "about": "workspace adapter (loads when a campaign's [[sources]] names it)", "workspace": str(path)})
     width = max(len(r["name"]) for r in rows)
-    lines = [f"{r['name']:<{width}}  {r['kind']:<10}  {'ready' if r['ready'] else 'NOT READY':<9}  {r['regions']:<26}  "
+    state = {True: "ready", False: "NOT READY", None: "-"}
+    lines = [f"{r['name']:<{width}}  {r['kind']:<10}  {state[r['ready']]:<9}  {r['regions']:<26}  "
              f"{r['about']}" + (f"\n{'':<{width}}  -> {r['why_not']}" if r["why_not"] else "")
              + (f"\n{'':<{width}}  workspace: {r['workspace']}" if r["workspace"] else "") for r in rows]
     return {"sources": rows}, "\n".join(lines)
@@ -87,7 +92,7 @@ def collect(camp: Campaign, only: list[str], refresh: bool) -> list[dict]:
     for s in specs:
         if "type" not in s:
             raise CLIError(f"a [[sources]] block in {camp.dir / 'campaign.toml'} has no type")
-        sources.load(s["type"], camp.root)  # unknown type fails before anything runs
+        sources.load(s["type"], camp.root, workspace_ok=True)  # unknown type fails before anything runs
     unknown = set(only) - {s["type"] for s in specs}
     if unknown:
         raise CLIError(f"not configured in campaign.toml [[sources]]: {', '.join(sorted(unknown))}")
