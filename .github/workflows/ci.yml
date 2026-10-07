@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests (offline, stdlib only)
+        run: python -m unittest -v
+      - name: CLI smoke
+        run: |
+          bin/leadgen --help > /dev/null
+          bin/leadgen sources > /dev/null
+          ws="$(mktemp -d)"
+          LEADGEN_HOME="$ws" bin/leadgen init smoke --offer "CI smoke"
+          LEADGEN_HOME="$ws" bin/leadgen --json status smoke > /dev/null
+
+  plugin:
+    name: plugin manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Claude Code (pinned)
+        run: npm install -g @anthropic-ai/claude-code@2.1.293
+      - name: Validate marketplace, plugin, and provider plugins
+        run: |
+          claude plugin validate .
+          claude plugin validate .claude-plugin/plugin.json
+          for p in providers/*/.claude-plugin/plugin.json; do claude plugin validate "$p"; done
+      - name: hooks.json is valid JSON
+        run: python3 -m json.tool hooks/hooks.json > /dev/null

@@ -15,6 +15,8 @@ exists, what was verified, and the exact next steps, so the next session can pic
 | 6. Outreach | **Done.** `outreach/drafts.py` (store, validation: evidence `[{fact, source}]` required, deep links), `outreach/suppression.py`, `outreach/compliance.py` (profiles can-spam/gdpr/uk-pecr/casl/ru → required fields, footer; `ru` needs `ru_consent = true`), `outreach/send.py` (off/confirm/auto, batches with content hashes + 24 h expiry, caps, idempotent `sent.jsonl`, follow-ups after `followup_days`, threading headers, SMTP from env). |
 | CLI | **Done (2026-10-08) except `market`.** `leadgen/cli.py` + `bin/leadgen` (bash wrapper, resolves symlinks, needs Python ≥ 3.11, runs `python -P` so files in the workspace can't shadow modules) + `python -m leadgen`. Commands: `init, sources, collect, merge, enrich, score, export, run, status, mark, drafts add/list/show, send, suppress, doctor, setup 2gis`; `--json` on every command (result on stdout, progress on stderr). Exit codes: 1 error, 2 usage, 3 send refused. `drafts add` moves leads new → drafted; `mark … suppressed` also adds the lead's domain (else its emails/phones) to `suppression.txt`. |
 | parser-builder | **Done (2026-10-08).** `skills/parser-builder/SKILL.md` + `references/patterns.md`: guidebook for building a parser (source adapter) for one specific source. Core: workspace adapters (`<workspace>/leadgen_sources/<name>.py`; loaded only when the campaign's `[[sources]]` names them, never to list them; path logged on load), `sources.LayoutChanged` (unit fails loudly; two in a row stop the source; kwork/flru raise it), `leadgen inspect` (fill rate per field, samples, duplicate ids), `templates/source.py` (tested as a working adapter). Plan: `docs/plans/parser-builder-skill.md`. |
+| Hooks | **Done (2026-10-08).** `hooks/hooks.json` → `hooks/guard.py` (PreToolUse/Bash). Send gate: **ask** on `leadgen send --approve` and when the campaign/send_mode can't be read; dry runs, confirm previews, `auto` and `off` pass through. PII guard: **deny** `git add` of `campaigns/`, `suppression.txt`, `*.leads.*`, `leadgen_sources/*_fixtures/`, and `git add -f` on broad paths. Never answers allow (a chained command could ride on it). Follows `cd` and `LEADGEN_HOME=` in the command. |
+| CI | **Done (2026-10-08).** `.github/workflows/ci.yml`: unittest + CLI smoke on Python 3.11–3.14; `claude plugin validate` (Claude Code pinned 2.1.293, no auth needed) on the marketplace, plugin, and providers. |
 | Templates | `templates/campaign.toml` (sources, enrich, scoring rules, tiers, outreach send modes) and `templates/brief.md`. |
 
 ### Verified so far
@@ -25,8 +27,8 @@ exists, what was verified, and the exact next steps, so the next session can pic
 - Smoke tests: merge collapses the same domain across sources; INN checksum; tech detection; a live crawl of
   a real site found WordPress/WooCommerce/GTM/CF7/CookieYes.
 - Live (2026-10-07): MX/provider for real domains, Greenhouse/Ashby boards (and a common-token guess correctly rejected), RKN lookup, crawl through the SSRF-guarded opener.
-- `python3 -m unittest`: 49 offline tests (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
-  merge, CLI end to end on the `file` source, workspace adapters, LayoutChanged, the source template).
+- `python3 -m unittest`: 54 offline tests (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
+  merge, CLI end to end on the `file` source, workspace adapters, LayoutChanged, the source template, hook decisions).
 - **Live end to end (2026-10-08):** `bin/leadgen run` on OSM dentists in Coimbra (limit 10): 10 leads, 5 sites crawled, MX checked,
   tiers A3/C4/D3, CSV exported; re-run fully cached (0.1 s, 0 leads re-enriched). Drafts/send not run live (no SMTP).
 
@@ -38,12 +40,8 @@ exists, what was verified, and the exact next steps, so the next session can pic
    lead-scoring, outreach, niche-research (port claude-kit's, generalized; separate from parser-builder), compliance.
 3. **Agents** (`agents/`): company-researcher, lead-qualifier, outreach-writer, market-scanner, fact-checker.
 4. **Commands** (`commands/`): new, run, research, niches, drafts, send, status, setup.
-5. **Hooks** (`hooks/hooks.json` + script). Send gate decided: allow `--dry-run`; allow in `auto`; allow the
-   confirm-mode preview (no `--approve`); **ask** for `--approve`; ask when the campaign/mode can't be read. Match
-   `leadgen send`, `leadgen.cli send`, `bin/leadgen send`. PII guard on `git add` (-f, campaigns/, suppression.txt, *.leads.*).
-6. **CI:** GitHub Actions running `python -m unittest` and `claude plugin validate`.
-7. **Docs:** README (install, quickstart), `docs/architecture.md`, `configuration.md`, `sources.md`, `compliance.md`.
-8. **Live smoke test:** OSM → CSV done (see Verified). Still to run live: `jobs`/`registry` steps, a RU source, drafts → `send` in
+5. **Docs:** README (install, quickstart), `docs/architecture.md`, `configuration.md`, `sources.md`, `compliance.md`.
+6. **Live smoke test:** OSM → CSV done (see Verified). Still to run live: `jobs`/`registry` steps, a RU source, drafts → `send` in
    confirm mode against a test SMTP inbox.
 
 ## Security findings (fixed 2026-10-07)
