@@ -107,6 +107,8 @@ class CLITest(unittest.TestCase):
         self.assertEqual(r2["merge"]["leads"], 3)
 
         self.assertEqual(self.j("export", "t", "--min-tier", "A", "--has-email")["rows"], 1)
+        self.assertEqual(self.j("lead", "t", "sorriso.test")["tier"], "A")
+        self.assertIn("no lead", self.j("lead", "t", "nope.test", code=1)["error"])
         st = self.j("status", "t")
         self.assertEqual((st["leads"], st["raw"]["file"]["rows"], st["status"]["new"]), (3, 4, 3))
 

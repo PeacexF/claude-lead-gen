@@ -136,7 +136,7 @@ machine-readable results for Claude.
 | `contact-discovery` | Find decision makers and contact routes: team pages, public profiles, email patterns + MX check. Compliance-aware. |
 | `lead-scoring` | Write and tune scoring rules and tiers; explain why each lead is ranked where it is. |
 | `outreach` | Personalized drafts that use evidence hooks, sequences, channel choice, and send modes. |
-| `niche-research` | Ported from claude-kit, generalized: demand × gap × reach scans, niche cards with evidence. |
+| `niche-research` | *Deferred (owner, 2026-10-08): a separate future skill.* Ported from claude-kit, generalized: demand × gap × reach scans, niche cards with evidence. |
 | `compliance` | GDPR/PECR, CAN-SPAM, CASL, 152-ФЗ/38-ФЗ, source ToS; per-geo checklist that runs before outreach. |
 | `parser-builder` | Guidebook for building a parser (source adapter) for one specific source: qualify it (ToS, login, captcha), find the data path, units and pagination, synthetic fixtures, offline tests, small live check, registration. Workspace adapters (`<workspace>/leadgen_sources/<name>.py`, loaded only when a campaign names them) for one-off sources; `LayoutChanged` makes a broken parser fail loudly. [Design](docs/plans/parser-builder-skill.md). |
 

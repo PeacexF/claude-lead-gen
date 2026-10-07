@@ -281,6 +281,15 @@ def cmd_status(args):
     return res, "\n".join(lines)
 
 
+def cmd_lead(args):
+    """One lead record, in full (for research, qualification and drafting)."""
+    camp = camp_of(args)
+    lead = next((l for l in read_jsonl(camp.leads_path) if l["id"] == args.lead), None)
+    if not lead:
+        raise CLIError(f"no lead {args.lead!r} in {camp.leads_path}")
+    return lead, json.dumps(lead, ensure_ascii=False, indent=1)
+
+
 def cmd_mark(args):
     camp = camp_of(args)
     leads = leads_of(camp)
@@ -503,6 +512,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--steps", help="enrichment steps (default: from campaign.toml; empty string = none)")
     sp.add_argument("--refresh", action="store_true", help="re-fetch units already collected")
     cmd("status", cmd_status, "counts per stage, tier, and outreach status")
+    sp = cmd("lead", cmd_lead, "print one lead record in full")
+    sp.add_argument("lead", help="lead id")
     sp = cmd("mark", cmd_mark, "set a lead's status (suppressed also adds it to suppression.txt)")
     sp.add_argument("lead", help="lead id")
     sp.add_argument("status", choices=LEAD_STATUSES)
