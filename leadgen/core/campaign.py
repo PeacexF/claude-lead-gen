@@ -6,6 +6,7 @@ Workspace root = $LEADGEN_HOME or the current directory. Each campaign is campai
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import pathlib
 import re
@@ -104,7 +105,9 @@ class Campaign:
         for sub in ("dossiers", "outreach", "reports"):
             (d / sub).mkdir()
         cfg = (TEMPLATES / "campaign.toml").read_text()
-        cfg = cfg.replace('name = ""', f'name = "{name or slug}"', 1).replace('offer = ""', f'offer = "{offer}"', 1)
+        # json.dumps gives a valid TOML basic string (quotes, backslashes, control chars escaped)
+        cfg = cfg.replace('name = ""', f"name = {json.dumps(name or slug, ensure_ascii=False)}", 1)
+        cfg = cfg.replace('offer = ""', f"offer = {json.dumps(offer, ensure_ascii=False)}", 1)
         (d / "campaign.toml").write_text(cfg)
         shutil.copy(TEMPLATES / "brief.md", d / "brief.md")
         gi = root / ".gitignore"

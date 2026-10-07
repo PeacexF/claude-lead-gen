@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# leadgen CLI. Claude Code puts the plugin's bin/ on the Bash PATH while the plugin is enabled.
+# -P keeps the current directory off sys.path, so files in a campaign workspace can't shadow the package.
+set -euo pipefail
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  [[ $src != /* ]] && src="$dir/$src"
+done
+root="$(cd -P "$(dirname "$src")/.." && pwd)"
+py="${LEADGEN_PYTHON:-python3}"
+if ! "$py" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+  echo "leadgen: needs Python >= 3.11 (found: $("$py" --version 2>&1)); set LEADGEN_PYTHON to a newer python" >&2
+  exit 1
+fi
+PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}" exec "$py" -P -m leadgen.cli "$@"

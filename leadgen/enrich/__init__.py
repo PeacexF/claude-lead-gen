@@ -86,14 +86,15 @@ class Runner:
                 with self.lock:
                     self.stats[step]["failed"] += 1
                 self.log(f"[enrich:{step}] {lead.get('id')}: {type(e).__name__}: {e}"[:300])
-        if "site" in self.steps and not lead.get("website"):
-            schema.add_signal(lead, "no_website", "no own website in any source", "sources")
         return lead
 
     def run(self, leads: list[dict], only: set[str] | None = None, limit: int | None = None) -> list[dict]:
+        if "site" in self.steps:  # no network needed, so not queued (and not counted) as work
+            for l in leads:
+                if not l.get("website") and (not only or l["id"] in only):
+                    schema.add_signal(l, "no_website", "no own website in any source", "sources")
         todo = [i for i, l in enumerate(leads)
-                if (not only or l["id"] in only) and (any(needs(l, s, self.cfg, self.refresh) for s in self.steps)
-                                                      or ("site" in self.steps and not l.get("website")))]
+                if (not only or l["id"] in only) and any(needs(l, s, self.cfg, self.refresh) for s in self.steps)]
         if limit:
             todo = todo[:limit]
         self.log(f"[enrich] {len(todo)} of {len(leads)} leads need {', '.join(self.steps)}")
@@ -113,7 +114,7 @@ class Runner:
 
 def run(camp: Campaign, steps: list[str] | None = None, refresh: bool = False, only: set[str] | None = None,
         limit: int | None = None, log=None) -> dict:
-    steps = [s for s in (steps or configured_steps(camp.config)) if s in STEPS]
+    steps = [s for s in (configured_steps(camp.config) if steps is None else steps) if s in STEPS]
     leads = list(read_jsonl(camp.leads_path))
     if not leads:
         raise FileNotFoundError(f"no leads yet in {camp.leads_path} (run: leadgen merge {camp.slug})")

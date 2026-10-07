@@ -5,7 +5,8 @@ merged (union-find), so a 2GIS entry with a site, a Yandex entry with the same p
 the same name in the same city all collapse into one lead. Chains that list one site for many branches
 collapse too; that's intended (one buyer).
 
-Existing enrichment, scores, notes and status on leads.jsonl are kept across re-merges.
+Existing enrichment (site, dns, jobs, registry blocks; verified emails), scores, notes and status on leads.jsonl
+are kept across re-merges.
 """
 from __future__ import annotations
 
@@ -136,9 +137,12 @@ def merge(records: list[dict], existing: list[dict] | None = None, default_cc: s
     for lead in leads:
         old = prev.pop(lead["id"], None)
         if old:
-            for k in ("site", "score", "score_breakdown", "tier", "notes", "status"):
+            for k in ("site", "dns", "jobs", "registry", "score", "score_breakdown", "tier", "notes", "status"):
                 if old.get(k):
                     lead[k] = old[k]
+            # the old email entries carry enrichment (verified = "mx") that the fresh fragment lacks
+            old_emails = {e["value"]: e for e in old.get("emails") or [] if isinstance(e, dict)}
+            lead["emails"] = [old_emails.get(e["value"], e) for e in lead.get("emails") or []]
             lead = _union(lead, {**schema.empty_lead(), **{k: old.get(k) for k in
                                  ("emails", "people", "signals", "socials", "legal", "phones", "categories", "names", "sources")
                                  if old.get(k)}})

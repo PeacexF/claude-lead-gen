@@ -123,7 +123,8 @@ def geocode(f: Fetcher, location: str) -> dict:
     return hits[0]
 
 
-def area_clause(g: dict) -> str:
+def area_clause(g: dict) -> tuple[str, str]:
+    """(setup statement, filter suffix): a named area when Nominatim found a boundary, else the bounding box."""
     osm_id = int(g["osm_id"])
     if g["osm_type"] == "relation":
         return f"area(id:{3600000000 + osm_id})->.a;", "(area.a)"
