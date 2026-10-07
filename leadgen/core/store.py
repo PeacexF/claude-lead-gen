@@ -74,6 +74,14 @@ def flatten(lead: dict) -> dict:
     }
 
 
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe(row: dict) -> dict:
+    """Neutralize spreadsheet formulas: scraped text like '=HYPERLINK(...)' must stay text in Excel/Sheets."""
+    return {k: "'" + v if isinstance(v, str) and v.startswith(FORMULA_START) else v for k, v in row.items()}
+
+
 def write_csv(path: pathlib.Path, leads: Iterable[dict]) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     n = 0
@@ -81,6 +89,6 @@ def write_csv(path: pathlib.Path, leads: Iterable[dict]) -> int:
         w = csv.DictWriter(fh, fieldnames=CSV_COLUMNS, extrasaction="ignore")
         w.writeheader()
         for lead in leads:
-            w.writerow(flatten(lead))
+            w.writerow(csv_safe(flatten(lead)))
             n += 1
     return n

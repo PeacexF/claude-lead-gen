@@ -6,8 +6,10 @@ than its delay. Stdlib only.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import pathlib
+import socket
 import ssl
 import threading
 import time
@@ -23,10 +25,52 @@ class Blocked(Exception):
     """The source answered with a rate limit, captcha, or access wall. Stop the run; don't retry hard."""
 
 
+class UnsafeURL(urllib.error.URLError):
+    """A public_only request pointed at a non-http(s) scheme or a host that resolves to a non-public address."""
+
+
+def public_ip(addr: str) -> bool:
+    ip = ipaddress.ip_address(addr.split("%", 1)[0])
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_global and not ip.is_multicast
+
+
+def check_public(url: str) -> None:
+    """Refuse URLs that could reach the local machine or private networks (SSRF guard for untrusted URLs).
+
+    Every address the host resolves to must be global unicast. DNS can still change between this check and the
+    connection (rebinding); that residual risk is accepted for a local CLI that only issues GETs.
+    """
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        raise UnsafeURL(f"scheme not allowed: {parts.scheme!r}")
+    host = parts.hostname
+    if not host:
+        raise UnsafeURL("no host")
+    try:
+        infos = socket.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except socket.gaierror as e:
+        raise urllib.error.URLError(e) from e
+    bad = sorted({i[4][0] for i in infos if not public_ip(i[4][0])})
+    if bad or not infos:
+        raise UnsafeURL(f"non-public address for {host}: {', '.join(bad) or 'none'}")
+
+
+class _PublicRedirects(urllib.request.HTTPRedirectHandler):
+    """Re-check every redirect target, so a public page can't bounce the crawler to 127.0.0.1 or file://."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        check_public(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class Fetcher:
     def __init__(self, cache_dir: pathlib.Path | None = None, delay: float = 1.0, ua: str = UA_BROWSER,
-                 lang: str = "en", timeout: float = 25.0, host_delays: dict[str, float] | None = None):
+                 lang: str = "en", timeout: float = 25.0, host_delays: dict[str, float] | None = None,
+                 public_only: bool = False):
         self.cache_dir = cache_dir
+        self.public_only = public_only
         self.delay = delay
         self.ua = ua
         self.lang = lang
@@ -73,14 +117,19 @@ class Fetcher:
     # --- main API --------------------------------------------------------
     def request(self, url: str, data: bytes | None = None, headers: dict | None = None, method: str | None = None,
                 cache: bool = True, ttl: float | None = None, max_bytes: int = 5_000_000,
-                html_only: bool = False, insecure_fallback: bool = False) -> tuple[int, str, str]:
+                html_only: bool = False, insecure_fallback: bool = False,
+                public_only: bool | None = None) -> tuple[int, str, str]:
         """Return (status, final_url, text). Cached by (method, url, body).
+
+        public_only: refuse anything but http(s) to public addresses, including after redirects. Set it (here or
+        on the Fetcher) whenever the URL comes from scraped or imported data rather than from adapter code.
 
         insecure_fallback: retry without certificate verification after an SSL error. Only for reading public
         business pages (the crawler records the broken certificate as a finding). Never use it for API calls
         that carry keys or for anything that sends data.
         """
         url = self.idna_url(url)
+        guard = self.public_only if public_only is None else public_only
         key = json.dumps([method or ("POST" if data else "GET"), url, (data or b"").decode("utf-8", "replace")])
         cp = self._cache_path(key) if cache else None
         if cp and cp.exists() and (ttl is None or time.time() - cp.stat().st_mtime < ttl):
@@ -88,19 +137,23 @@ class Fetcher:
             return rec["status"], rec["final"], rec["text"]
         host = urllib.parse.urlsplit(url).hostname or ""
         hdrs = {"User-Agent": self.ua, "Accept-Language": self.lang, **(headers or {})}
+        if guard:
+            check_public(url)
         self._wait(host)
-        status, final, text = self._do(url, data, hdrs, method, max_bytes, html_only, insecure_fallback and data is None)
+        status, final, text = self._do(url, data, hdrs, method, max_bytes, html_only, insecure_fallback and data is None,
+                                       guard)
         if cp and status < 500:
             cp.parent.mkdir(parents=True, exist_ok=True)
             cp.write_text(json.dumps({"status": status, "final": final, "text": text}))
         return status, final, text
 
-    def _do(self, url, data, hdrs, method, max_bytes, html_only, insecure_fallback):
+    def _do(self, url, data, hdrs, method, max_bytes, html_only, insecure_fallback, public_only=False):
         req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
         for verify in ((True, False) if insecure_fallback else (True,)):
             ctx = ssl.create_default_context() if verify else ssl._create_unverified_context()
+            handlers = [urllib.request.HTTPSHandler(context=ctx)] + ([_PublicRedirects()] if public_only else [])
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout, context=ctx) as r:
+                with urllib.request.build_opener(*handlers).open(req, timeout=self.timeout) as r:
                     ctype = r.headers.get("Content-Type", "")
                     if html_only and ctype and "html" not in ctype:
                         return r.status, r.geturl(), ""
