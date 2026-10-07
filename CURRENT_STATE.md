@@ -14,6 +14,7 @@ exists, what was verified, and the exact next steps, so the next session can pic
 | 5. Scoring | **`leadgen/score.py` done** (ops over dotted paths, signal/tech/category, negative points, `disqualify`, tiers, formula). `export`/`run`/`status` wait for the CLI. |
 | 6. Outreach | **Done.** `outreach/drafts.py` (store, validation: evidence `[{fact, source}]` required, deep links), `outreach/suppression.py`, `outreach/compliance.py` (profiles can-spam/gdpr/uk-pecr/casl/ru → required fields, footer; `ru` needs `ru_consent = true`), `outreach/send.py` (off/confirm/auto, batches with content hashes + 24 h expiry, caps, idempotent `sent.jsonl`, follow-ups after `followup_days`, threading headers, SMTP from env). |
 | CLI | **Done (2026-10-08) except `market`.** `leadgen/cli.py` + `bin/leadgen` (bash wrapper, resolves symlinks, needs Python ≥ 3.11, runs `python -P` so files in the workspace can't shadow modules) + `python -m leadgen`. Commands: `init, sources, collect, merge, enrich, score, export, run, status, mark, drafts add/list/show, send, suppress, doctor, setup 2gis`; `--json` on every command (result on stdout, progress on stderr). Exit codes: 1 error, 2 usage, 3 send refused. `drafts add` moves leads new → drafted; `mark … suppressed` also adds the lead's domain (else its emails/phones) to `suppression.txt`. |
+| parser-builder | **Done (2026-10-08).** `skills/parser-builder/SKILL.md` + `references/patterns.md`: guidebook for building a parser (source adapter) for one specific source. Core: workspace adapters (`<workspace>/sources/<name>.py`, path logged on load), `sources.LayoutChanged` (unit fails loudly; two in a row stop the source; kwork/flru raise it), `leadgen inspect` (fill rate per field, samples, duplicate ids), `templates/source.py` (tested as a working adapter). Plan: `docs/plans/parser-builder-skill.md`. |
 | Templates | `templates/campaign.toml` (sources, enrich, scoring rules, tiers, outreach send modes) and `templates/brief.md`. |
 
 ### Verified so far
@@ -24,8 +25,8 @@ exists, what was verified, and the exact next steps, so the next session can pic
 - Smoke tests: merge collapses the same domain across sources; INN checksum; tech detection; a live crawl of
   a real site found WordPress/WooCommerce/GTM/CF7/CookieYes.
 - Live (2026-10-07): MX/provider for real domains, Greenhouse/Ashby boards (and a common-token guess correctly rejected), RKN lookup, crawl through the SSRF-guarded opener.
-- `python3 -m unittest`: 45 offline tests (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
-  merge, CLI end to end on the `file` source).
+- `python3 -m unittest`: 49 offline tests (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
+  merge, CLI end to end on the `file` source, workspace adapters, LayoutChanged, the source template).
 - **Live end to end (2026-10-08):** `bin/leadgen run` on OSM dentists in Coimbra (limit 10): 10 leads, 5 sites crawled, MX checked,
   tiers A3/C4/D3, CSV exported; re-run fully cached (0.1 s, 0 leads re-enriched). Drafts/send not run live (no SMTP).
 
@@ -33,8 +34,8 @@ exists, what was verified, and the exact next steps, so the next session can pic
 
 1. **`leadgen market`** (the one CLI command left): port claude-kit `normalize_orders.py`, `label_orders.py`, `clusters.py`,
    `segments.py`, `score.py` as generic, config-driven versions over `sources.load_raw(camp, "demand")`.
-2. **Skills** (`skills/*/SKILL.md`): lead-gen, icp-builder, lead-sourcing, company-research, contact-discovery,
-   lead-scoring, outreach, niche-research (port claude-kit's, generalized), compliance.
+2. **Skills** (`skills/*/SKILL.md`; parser-builder done): lead-gen, icp-builder, lead-sourcing, company-research, contact-discovery,
+   lead-scoring, outreach, niche-research (port claude-kit's, generalized; separate from parser-builder), compliance.
 3. **Agents** (`agents/`): company-researcher, lead-qualifier, outreach-writer, market-scanner, fact-checker.
 4. **Commands** (`commands/`): new, run, research, niches, drafts, send, status, setup.
 5. **Hooks** (`hooks/hooks.json` + script). Send gate decided: allow `--dry-run`; allow in `auto`; allow the
@@ -44,8 +45,6 @@ exists, what was verified, and the exact next steps, so the next session can pic
 7. **Docs:** README (install, quickstart), `docs/architecture.md`, `configuration.md`, `sources.md`, `compliance.md`.
 8. **Live smoke test:** OSM → CSV done (see Verified). Still to run live: `jobs`/`registry` steps, a RU source, drafts → `send` in
    confirm mode against a test SMTP inbox.
-9. **`parser-builder` skill:** guidebook for building a parser for one specific source, per
-   [docs/plans/parser-builder-skill.md](docs/plans/parser-builder-skill.md) (core changes first: workspace adapters, `LayoutChanged`, `leadgen inspect`).
 
 ## Security findings (fixed 2026-10-07)
 1. **CSV formula injection** in `store.write_csv`: string cells starting with `= + - @ \t \r` get a `'` prefix

@@ -13,19 +13,26 @@ Each adapter module defines:
     SNAPSHOT = True                      optional; re-collect once per day (live feeds) instead of once ever
 
 The runner writes raw/<source>/<date>/<unit_key>.jsonl and skips units already collected (any date) unless
---refresh, so re-runs only fetch what's missing. A Blocked error stops that source for this run.
+--refresh, so re-runs only fetch what's missing. A Blocked error stops that source for this run. LayoutChanged
+(raised by an adapter's parser when the page/API structure it expects is gone) fails the unit loudly instead of
+returning 0 rows; two in a row stop the source.
+
+Workspace adapters: <workspace>/sources/<name>.py with the same contract, for one-off sources that don't belong in
+the plugin (see the parser-builder skill). Built-in names win; the path of every workspace adapter is logged on load.
 """
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import json
 import os
+import pathlib
 import re
 import sys
 import traceback
 from dataclasses import dataclass, field
 
-from ..core.campaign import Campaign, today
+from ..core.campaign import Campaign, today, workspace
 from ..core.http import Blocked, Fetcher
 from ..core.store import read_jsonl, write_jsonl
 
@@ -33,14 +40,58 @@ MODULES = ["osm", "google_places", "companies_house", "hn_hiring", "file", "yand
            "kwork", "kwork_gigs", "flru", "pchel", "workspace_ru"]
 
 
-def load(name: str):
-    if name not in MODULES:
-        raise KeyError(f"unknown source {name!r}; known: {', '.join(MODULES)}")
-    return importlib.import_module(f"{__name__}.{name}")
+REQUIRED = ("NAME", "KIND", "REGIONS", "ABOUT", "units", "unit_key", "collect_unit")
+_workspace_mods: dict[pathlib.Path, object] = {}
 
 
-def all_sources():
-    return [load(n) for n in MODULES]
+class LayoutChanged(Exception):
+    """The structure a parser relies on is missing (markup, JSON shape, endpoint). Fix the adapter; don't retry."""
+
+
+def workspace_dir(root: pathlib.Path | None = None) -> pathlib.Path:
+    return (root or workspace()) / "sources"
+
+
+def _load_file(path: pathlib.Path):
+    path = path.resolve()
+    if path in _workspace_mods:
+        return _workspace_mods[path]
+    spec = importlib.util.spec_from_file_location(f"leadgen_workspace_sources.{path.stem}", path)
+    mod = importlib.util.module_from_spec(spec)
+    print(f"[sources] loading workspace adapter {path}", file=sys.stderr)
+    spec.loader.exec_module(mod)
+    missing = [a for a in REQUIRED if not hasattr(mod, a)]
+    if missing:
+        raise KeyError(f"workspace adapter {path} lacks {', '.join(missing)} (see templates/source.py)")
+    if mod.NAME != path.stem:
+        raise KeyError(f"workspace adapter {path}: NAME = {mod.NAME!r} must match the file name {path.stem!r}")
+    if mod.KIND not in ("businesses", "demand"):
+        raise KeyError(f"workspace adapter {path}: KIND must be 'businesses' or 'demand', got {mod.KIND!r}")
+    mod.ENV = getattr(mod, "ENV", [])
+    mod.WORKSPACE = str(path)
+    _workspace_mods[path] = mod
+    return mod
+
+
+def load(name: str, root: pathlib.Path | None = None):
+    if name in MODULES:
+        return importlib.import_module(f"{__name__}.{name}")
+    path = workspace_dir(root) / f"{name}.py"
+    if re.fullmatch(r"[a-z][a-z0-9_]*", name) and path.is_file():
+        return _load_file(path)
+    raise KeyError(f"unknown source {name!r}; built in: {', '.join(MODULES)}; "
+                   f"or write {path} (parser-builder skill)")
+
+
+def workspace_names(root: pathlib.Path | None = None) -> list[str]:
+    d = workspace_dir(root)
+    return sorted(p.stem for p in d.glob("*.py") if re.fullmatch(r"[a-z][a-z0-9_]*", p.stem) and p.stem not in MODULES) \
+        if d.is_dir() else []
+
+
+def all_sources(root: pathlib.Path | None = None, include_workspace: bool = False):
+    names = MODULES + (workspace_names(root) if include_workspace else [])
+    return [load(n, root) for n in names]
 
 
 def readiness(mod) -> str | None:
@@ -75,14 +126,16 @@ def already_collected(camp: Campaign, source: str, key: str, today_only: bool = 
 def run_source(camp: Campaign, spec: dict, refresh: bool = False, log=None) -> dict:
     log = log or (lambda m: print(m, file=sys.stderr))
     name = spec["type"]
-    mod = load(name)
+    mod = load(name, camp.root)
     why = readiness(mod)
     if why:
         log(f"[{name}] skipped: {why}")
         return {"source": name, "skipped": why}
     fetcher = getattr(mod, "fetcher", None)
     ctx = Ctx(camp, fetcher(camp) if fetcher else camp.fetcher(), spec, log)
-    stats = {"source": name, "units": 0, "skipped_cached": 0, "rows": 0, "failed": 0, "blocked": None}
+    stats = {"source": name, "units": 0, "skipped_cached": 0, "rows": 0, "failed": 0, "blocked": None,
+             "layout_changed": 0}
+    layout_streak = 0
     for unit in mod.units(spec):
         key = safe_key(mod.unit_key(unit))
         if not refresh and already_collected(camp, name, key, getattr(mod, "SNAPSHOT", False)):
@@ -94,12 +147,22 @@ def run_source(camp: Campaign, spec: dict, refresh: bool = False, log=None) -> d
             stats["blocked"] = str(e)
             log(f"[{name}] blocked ({e}); stopping this source. Re-run later; finished units are kept.")
             break
+        except LayoutChanged as e:
+            stats["failed"] += 1
+            stats["layout_changed"] += 1
+            layout_streak += 1
+            log(f"[{name}] {key}: LAYOUT CHANGED: {e}. The adapter's parser needs fixing (parser-builder skill).")
+            if layout_streak >= 2:
+                log(f"[{name}] two units in a row hit a layout change; stopping this source.")
+                break
+            continue
         except Exception as e:  # one bad unit must not stop the run
             stats["failed"] += 1
             log(f"[{name}] {key}: FAILED {type(e).__name__}: {e}")
             if os.environ.get("LEADGEN_DEBUG"):
                 traceback.print_exc()
             continue
+        layout_streak = 0
         stamp = today()
         for r in rows:
             r.setdefault("source", name)
@@ -111,17 +174,31 @@ def run_source(camp: Campaign, spec: dict, refresh: bool = False, log=None) -> d
     return stats
 
 
-def load_raw(camp: Campaign, kind: str = "businesses") -> list[dict]:
-    """All raw rows of the given kind; for a unit collected on several dates, the newest snapshot wins."""
+def raw_rows(camp: Campaign, name: str) -> list[dict]:
+    """One source's raw rows; for a unit collected on several dates, the newest snapshot wins."""
+    latest: dict[str, pathlib.Path] = {}
+    for p in camp.raw_files(name):
+        latest[p.stem] = p  # raw_files is sorted, so later dates overwrite
+    return [r for p in latest.values() for r in read_jsonl(p)]
+
+
+def collected_sources(camp: Campaign) -> list[str]:
+    base = camp.dir / "raw"
+    return sorted(p.name for p in base.iterdir() if p.is_dir()) if base.is_dir() else []
+
+
+def load_raw(camp: Campaign, kind: str = "businesses", log=None) -> list[dict]:
+    """All raw rows of the given kind, from every source that has raw data in this campaign."""
+    log = log or (lambda m: print(m, file=sys.stderr))
     rows = []
-    for mod in all_sources():
-        if mod.KIND != kind:
+    for name in collected_sources(camp):
+        try:
+            mod = load(name, camp.root)
+        except KeyError as e:
+            log(f"[merge] raw/{name} skipped: {e}")
             continue
-        latest: dict[str, object] = {}
-        for p in camp.raw_files(mod.NAME):
-            latest[p.stem] = p  # raw_files is sorted, so later dates overwrite
-        for p in latest.values():
-            rows.extend(read_jsonl(p))
+        if mod.KIND == kind:
+            rows.extend(raw_rows(camp, name))
     return rows
 
 

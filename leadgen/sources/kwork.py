@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import re
 
+from . import LayoutChanged
+
 NAME = "kwork"
 KIND = "demand"
 REGIONS = "RU"
@@ -33,7 +35,7 @@ def fetcher(camp):
 def pagination(html: str) -> dict:
     i = html.find('"pagination":')
     if i < 0:
-        raise ValueError("no pagination JSON on page")
+        raise LayoutChanged('no "pagination": JSON on kwork.ru/projects')
     obj, _ = json.JSONDecoder().raw_decode(html[i + len('"pagination":'):])
     return obj
 

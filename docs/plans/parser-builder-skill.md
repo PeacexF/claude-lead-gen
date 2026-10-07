@@ -1,6 +1,6 @@
 # Plan: `parser-builder` skill (a guidebook for building a parser for one source)
 
-Status: plan, written 2026-10-08. When it's built, the SPEC §5.1 row and CURRENT_STATE are updated. This is not
+Status: **built 2026-10-08** (skill, core changes, template, tests). Kept as the design record. This is not
 the niche-research skill, which is separate: niche research decides *what* to look for, and this skill builds the
 code that collects it from *one* place.
 
@@ -48,9 +48,10 @@ type`).
 
 Two homes for an adapter:
 - **Built in** (`leadgen/sources/<name>.py`): broadly useful sources, added by PR with **synthetic** fixtures.
-- **Workspace** (`<workspace>/sources/<name>.py`): one-off or personal sources. They load when `campaign.toml`
-  names them (`[[sources]] type = "<name>"`) and the file exists. Built-in names take precedence, and the CLI
-  prints the path of every workspace adapter it loads.
+- **Workspace** (`<workspace>/sources/<name>.py`): one-off or personal sources, loaded only from that directory
+  (`[[sources]] type = "<name>"` runs one; `leadgen sources` lists them). Built-in names take precedence, and
+  every workspace adapter's path is printed when it loads. Real-page fixtures go in `sources/<name>_fixtures/`,
+  which `leadgen init` gitignores.
 
 ## 3. The guidebook workflow (`skills/parser-builder/SKILL.md`)
 
@@ -82,7 +83,7 @@ Two homes for an adapter:
 
 | # | Change | Where |
 |---|---|---|
-| 1 | Workspace adapters: `load(name)` falls back to `<workspace>/sources/<name>.py` (by path, only when named in config) | `leadgen/sources/__init__.py` |
+| 1 | Workspace adapters: `load(name)` falls back to `<workspace>/sources/<name>.py` (name must match `[a-z][a-z0-9_]*`) | `leadgen/sources/__init__.py` |
 | 2 | `LayoutChanged` error; the runner reports it per unit as "layout changed, fix the parser" and keeps going | `core/http.py`, `sources/__init__.py` |
 | 3 | `leadgen inspect <slug> [--source]`: rows, fill rate per field, 3 sample rows | `leadgen/cli.py` |
 | 4 | Adapter template | `templates/source.py` |

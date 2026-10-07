@@ -71,13 +71,14 @@ def cmd_init(args):
 
 def cmd_sources(args):
     rows = []
-    for m in sources.all_sources():
+    for m in sources.all_sources(include_workspace=True):
         why = sources.readiness(m)
         rows.append({"name": m.NAME, "kind": m.KIND, "regions": m.REGIONS, "env": list(m.ENV), "ready": why is None,
-                     "why_not": why, "about": m.ABOUT})
+                     "why_not": why, "about": m.ABOUT, "workspace": getattr(m, "WORKSPACE", None)})
     width = max(len(r["name"]) for r in rows)
     lines = [f"{r['name']:<{width}}  {r['kind']:<10}  {'ready' if r['ready'] else 'NOT READY':<9}  {r['regions']:<26}  "
-             f"{r['about']}" + (f"\n{'':<{width}}  -> {r['why_not']}" if r["why_not"] else "") for r in rows]
+             f"{r['about']}" + (f"\n{'':<{width}}  -> {r['why_not']}" if r["why_not"] else "")
+             + (f"\n{'':<{width}}  workspace: {r['workspace']}" if r["workspace"] else "") for r in rows]
     return {"sources": rows}, "\n".join(lines)
 
 
@@ -86,7 +87,7 @@ def collect(camp: Campaign, only: list[str], refresh: bool) -> list[dict]:
     for s in specs:
         if "type" not in s:
             raise CLIError(f"a [[sources]] block in {camp.dir / 'campaign.toml'} has no type")
-        sources.load(s["type"])  # unknown type fails before anything runs
+        sources.load(s["type"], camp.root)  # unknown type fails before anything runs
     unknown = set(only) - {s["type"] for s in specs}
     if unknown:
         raise CLIError(f"not configured in campaign.toml [[sources]]: {', '.join(sorted(unknown))}")
@@ -102,7 +103,8 @@ def fmt_collect(stats: list[dict]) -> str:
             out.append(f"{s['source']}: skipped ({s['skipped']})")
         else:
             out.append(f"{s['source']}: {s['units']} units fetched, {s['rows']} rows, {s['skipped_cached']} cached, "
-                       f"{s['failed']} failed" + (f", BLOCKED: {s['blocked']}" if s["blocked"] else ""))
+                       f"{s['failed']} failed" + (f", BLOCKED: {s['blocked']}" if s["blocked"] else "")
+                       + (f", LAYOUT CHANGED in {s['layout_changed']} units" if s.get("layout_changed") else ""))
     return "\n".join(out)
 
 
@@ -112,8 +114,39 @@ def cmd_collect(args):
     return {"collect": stats}, fmt_collect(stats)
 
 
+def empty(v) -> bool:
+    return v is None or v == "" or v == [] or v == {}
+
+
+def cmd_inspect(args):
+    """Fill rate per field and sample rows of the raw data: the live check for a new or changed adapter."""
+    camp = camp_of(args)
+    names = csv_list(args.source) or sources.collected_sources(camp)
+    if not names:
+        raise CLIError(f"no raw data in {camp.dir / 'raw'} (run: leadgen collect {camp.slug})")
+    res, text = {}, []
+    for name in names:
+        rows = sources.raw_rows(camp, name)
+        fields: dict[str, int] = {}
+        for r in rows:
+            for k, v in r.items():
+                fields.setdefault(k, 0)
+                fields[k] += not empty(v)
+        fill = {k: round(n / len(rows), 3) if rows else 0 for k, n in sorted(fields.items(), key=lambda kv: -kv[1])}
+        ids = [r.get("source_id") for r in rows if r.get("source_id") is not None]
+        res[name] = {"rows": len(rows), "units": len({p.stem for p in camp.raw_files(name)}),
+                     "duplicate_source_ids": len(ids) - len(set(ids)), "fill": fill, "sample": rows[: args.n]}
+        r = res[name]
+        text.append(f"== {name}: {r['rows']} rows in {r['units']} units"
+                    + (f", {r['duplicate_source_ids']} duplicate source_id" if r["duplicate_source_ids"] else ""))
+        text += [f"  {v:>6.0%}  {k}" for k, v in fill.items()]
+        for row in r["sample"]:
+            text.append("  sample: " + json.dumps({k: v for k, v in row.items() if not empty(v)}, ensure_ascii=False)[:400])
+    return res, "\n".join(text)
+
+
 def do_merge(camp: Campaign) -> dict:
-    rows = sources.load_raw(camp, "businesses")
+    rows = sources.load_raw(camp, "businesses", log=log)
     existing = list(read_jsonl(camp.leads_path))
     leads = merging.merge(rows, existing, camp.config["campaign"].get("default_phone_cc") or None)
     write_jsonl(camp.leads_path, leads)
@@ -443,6 +476,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp = cmd("collect", cmd_collect, "run the configured sources into raw/")
     sp.add_argument("--source", help="only these source types (comma-separated)")
     sp.add_argument("--refresh", action="store_true", help="re-fetch units already collected")
+    sp = cmd("inspect", cmd_inspect, "fill rate per field + sample rows of collected raw data (check a parser)")
+    sp.add_argument("--source", help="only these sources (comma-separated)")
+    sp.add_argument("--n", type=int, default=3, help="sample rows per source")
     cmd("merge", cmd_merge, "normalize + dedupe raw records into leads.jsonl")
     sp = cmd("enrich", cmd_enrich, "crawl sites, check MX, job boards, registries")
     sp.add_argument("--steps", help=f"comma-separated subset of {','.join(enrich.STEPS)} (default: from campaign.toml)")

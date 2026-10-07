@@ -9,6 +9,7 @@ import html as htmllib
 import re
 
 from ..core.http import HTTPStatusError
+from . import LayoutChanged
 
 NAME = "flru"
 KIND = "demand"
@@ -72,6 +73,8 @@ def collect_unit(ctx, unit: dict) -> list[dict]:
             if e.code == 404:
                 break
             raise
+        if page == 1 and 'qa-project-name="project-item' not in h:
+            raise LayoutChanged("no project-item blocks on fl.ru/projects page 1")
         new = [r for r in parse(h) if r["source_id"] not in seen]
         if not new:
             break

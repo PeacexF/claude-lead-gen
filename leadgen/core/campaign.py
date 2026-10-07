@@ -112,7 +112,7 @@ class Campaign:
         shutil.copy(TEMPLATES / "brief.md", d / "brief.md")
         gi = root / ".gitignore"
         lines = gi.read_text().splitlines() if gi.exists() else []
-        need = [p for p in ("campaigns/", "suppression.txt", ".leadgen-cache/") if p not in lines]
+        need = [p for p in ("campaigns/", "suppression.txt", ".leadgen-cache/", "sources/*_fixtures/") if p not in lines]
         if need:
             with gi.open("a") as fh:
                 fh.write(("\n" if lines and lines[-1] else "") + "# leadgen: personal data, keep out of git\n"
