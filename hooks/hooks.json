@@ -1,9 +1,19 @@
 {
-  "description": "leadgen guards: ask before sending an approved outreach batch; keep campaign personal data out of git.",
+  "description": "leadgen guards: ask before sending an approved outreach batch or switching send_mode to auto; keep campaign personal data out of git.",
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",

@@ -40,6 +40,7 @@ class GuardTest(unittest.TestCase):
             "leadgen send w": "ask",                      # unknown mode
             "leadgen send": "ask",
             "leadgen status c && leadgen send c --approve ab": "ask",
+            "cd /tmp && leadgen send c": "ask",                   # no campaign c under /tmp
             "leadgen drafts c list": None,
         }
         for cmd, want in cases.items():
@@ -72,6 +73,51 @@ class GuardTest(unittest.TestCase):
         for cmd, want in cases.items():
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.level(cmd), want)
+
+    def test_bypass_attempts_ask_or_deny(self):
+        """Regressions from the security review: each of these used to get no decision."""
+        cases = {
+            "leadgen send c --appr ab12": "ask",                                  # argparse-style abbreviation
+            "leadgen send c --a=ab12": "ask",
+            "sed -i s/confirm/auto/ campaigns/c/campaign.toml && leadgen send c": "ask",  # mode flipped first
+            "leadgen status c; leadgen send c": "ask",                            # any chain with a real send
+            "leadgen send c --dry-run && leadgen send c": "ask",
+            "(leadgen send c --approve ab12)": "ask",                             # subshell
+            "x=$(leadgen send c --approve ab12)": "ask",                          # command substitution
+            "bash -c 'leadgen send c --approve ab12'": "ask",                     # wrapper
+            "python3 -c \"from leadgen.cli import main; main(['send','c','--approve','ab12'])\"": "ask",
+            "python3 -c 'from leadgen.outreach import send; send.run(c, approve=\"ab\")'": "ask",
+            "mv /tmp/x.toml campaigns/c/campaign.toml": "ask",                    # write-then-move
+            "cat /tmp/x > campaigns/c/campaign.toml": "ask",                      # redirect
+            "git add -f Campaigns/c/leads.jsonl": "deny",                         # case-insensitive file systems
+            "git add -f --pathspec-from-file=list.txt": "deny",
+            "git add -f ':(icase)CAMPAIGNS'": "deny",
+            "git add -f ':(glob)**/c?mpaigns/**'": "deny",
+            "git add -f 'c[a]mpaigns'": "deny",
+            "sed -i '/campaigns/d' .gitignore && git add -A": "deny",
+            "git -c core.excludesFile=/dev/null add -A": "deny",
+            # still quiet:
+            "grep send_mode campaigns/c/campaign.toml": None,
+            "cat campaigns/c/campaign.toml": None,
+            "leadgen send c --dry-run": None,
+            "grep -n approve leadgen/outreach/send.py": None,
+        }
+        for cmd, want in cases.items():
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.level(cmd), want)
+
+    def test_edit_and_write(self):
+        toml = str(self.root / "campaigns/c/campaign.toml")
+        ask = lambda tool, inp: (guard.decide_edit(tool, inp) or [None])[0]  # noqa: E731
+        self.assertEqual(ask("Edit", {"file_path": toml, "old_string": 'send_mode = "confirm"',
+                                      "new_string": 'send_mode = "auto"'}), "ask")
+        self.assertEqual(ask("Write", {"file_path": toml, "content": "[outreach]\nsend_mode = 'auto'\n"}), "ask")
+        self.assertIsNone(ask("Edit", {"file_path": toml, "old_string": "limit = 10", "new_string": "limit = 50"}))
+        gi = self.root / ".gitignore"
+        gi.write_text("campaigns/\nsuppression.txt\n")
+        self.assertEqual(ask("Write", {"file_path": str(gi), "content": "suppression.txt\n"}), "ask")
+        self.assertEqual(ask("Edit", {"file_path": str(gi), "old_string": "campaigns/\n", "new_string": ""}), "ask")
+        self.assertIsNone(ask("Edit", {"file_path": str(gi), "old_string": "campaigns/\n", "new_string": "campaigns/\nnode_modules/\n"}))
 
     def test_hook_protocol(self):
         event = {"tool_name": "Bash", "cwd": str(self.root), "tool_input": {"command": "leadgen send c --approve ab12"}}

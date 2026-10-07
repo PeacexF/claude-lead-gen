@@ -461,14 +461,15 @@ def cmd_setup(args):
 
 # --- parser --------------------------------------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
-    common = argparse.ArgumentParser(add_help=False)
+    # allow_abbrev=False everywhere: `--appr` must not mean --approve (the send-gate hook matches flags literally)
+    common = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="print the result as JSON")
-    p = argparse.ArgumentParser(prog="leadgen", parents=[common],
+    p = argparse.ArgumentParser(prog="leadgen", parents=[common], allow_abbrev=False,
                                 description="Lead generation CLI: collect -> merge -> enrich -> score -> export -> drafts -> send.")
     sub = p.add_subparsers(dest="cmd", required=True, metavar="command")
 
     def cmd(name, fn, help, slug=True):
-        sp = sub.add_parser(name, parents=[common], help=help, description=help)
+        sp = sub.add_parser(name, parents=[common], help=help, description=help, allow_abbrev=False)
         if slug:
             sp.add_argument("slug", help="campaign slug (campaigns/<slug>/)")
         sp.set_defaults(fn=fn)
@@ -509,12 +510,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = cmd("drafts", cmd_drafts, "store and inspect outreach drafts")
     dsub = sp.add_subparsers(dest="action", required=True, metavar="action")
-    da = dsub.add_parser("add", parents=[common], help="add drafts from a file or stdin (JSON, JSON list, or JSONL)")
+    da = dsub.add_parser("add", parents=[common], allow_abbrev=False, help="add drafts from a file or stdin (JSON, JSON list, or JSONL)")
     da.add_argument("file", nargs="?", help="path, or - / omitted for stdin")
-    dl = dsub.add_parser("list", parents=[common], help="list drafts")
+    dl = dsub.add_parser("list", parents=[common], allow_abbrev=False, help="list drafts")
     dl.add_argument("--status", help="draft,sent,skipped (comma-separated)")
     dl.add_argument("--lead", help="only this lead id")
-    ds = dsub.add_parser("show", parents=[common], help="show a draft (or all drafts of a lead) with its evidence")
+    ds = dsub.add_parser("show", parents=[common], allow_abbrev=False, help="show a draft (or all drafts of a lead) with its evidence")
     ds.add_argument("id", help="draft id (<lead>:<step>:<channel>) or lead id")
 
     sp = cmd("send", cmd_send, "gated email sending (send_mode off|confirm|auto)")

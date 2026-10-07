@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
-"""PreToolUse guard for Bash commands (SPEC.md §5.4). Stdin: the hook JSON. Stdout: a decision, or nothing.
+"""PreToolUse guard (SPEC.md §5.4). Stdin: the hook JSON. Stdout: a decision, or nothing (normal permission flow).
 
-Send gate — `leadgen send` (also `bin/leadgen send`, `python -m leadgen[.cli] send`):
-  --dry-run                      no opinion (nothing can be sent)
-  --approve <batch>              ASK: this sends a previewed batch
-  plain send, send_mode confirm  no opinion (writes a preview batch, sends nothing)
-  plain send, send_mode off      no opinion (the CLI refuses)
-  plain send, send_mode auto     no opinion (the user chose automatic sending in campaign.toml)
-  campaign or mode unreadable    ASK
-PII guard — `git add`:
-  campaigns/, suppression.txt, *.leads.*, leadgen_sources/*_fixtures/   DENY (personal data; gitignored on purpose)
-  -f / --force with a broad path (., -A, *, a directory)        DENY (would pull ignored campaign data in)
+Send gate. Sending needs a human in the loop unless the user chose send_mode = "auto" themselves.
+  Bash `leadgen send` (also bin/leadgen, python -m leadgen[.cli]):
+    --dry-run, alone on the command line                  no opinion (nothing can be sent)
+    plain send, alone, send_mode off | confirm | auto     no opinion (off refuses; confirm only previews; auto = user's choice)
+    --approve <batch> (or any abbreviation of it)         ASK: this sends a previewed batch
+    send chained with other commands                      ASK: the chain could change send_mode first
+    campaign or send_mode unreadable / unknown            ASK
+  Bash, raw-text fallback for indirection the parser can't see ($(...), sh -c, eval, python -c, ...):
+    mentions leadgen and an --approve flag / approve=     ASK
+    any command that may write campaign.toml (not plainly read-only, or redirects)   ASK
+  Edit / Write of campaign.toml that sets send_mode = "auto"                          ASK
+PII guard. Campaign data is personal data and stays out of git.
+  `git add` of campaigns/, suppression.txt, *.leads.*, leadgen_sources/*_fixtures/ (any case)   DENY
+  `git add -f` on a broad path (., -A, globs, :(magic) pathspecs, a directory, --pathspec-from-file)  DENY
+  `git add` in the same command that touches ignore rules (.gitignore, info/exclude, excludesFile)  DENY
+  Edit / Write of .gitignore that drops a campaigns/ suppression.txt *.leads.* entry               ASK
 
-The guard never answers "allow": that would also approve whatever else is chained in the same command line.
+This is a guardrail against mistakes and casual workarounds, not a sandbox: shell is too expressive for a hook to
+parse completely. It never answers "allow", so a matched safe segment can't approve anything chained with it.
+The CLI enforces the rest itself: send_mode, preview batches with content hashes, caps, suppression.
 """
 from __future__ import annotations
 
@@ -23,15 +31,20 @@ import re
 import shlex
 import sys
 
-PII = re.compile(r"(^|/)(campaigns(/|$)|suppression\.txt$|[^/]*\.leads\.[^/]*$|leadgen_sources/[^/]*_fixtures(/|$))")
+PII = re.compile(r"(^|[/:])(campaigns(/|$)|suppression\.txt$|[^/]*\.leads\.[^/]*$|leadgen_sources/[^/]*_fixtures(/|$))",
+                 re.I)  # case-insensitive: macOS and Windows file systems are
+IGNORE_ENTRIES = ("campaigns/", "suppression.txt", ".leads.")
 SEPARATORS = re.compile(r"&&|\|\||[;|\n&]")
+APPROVE_FLAG = re.compile(r"(?<![\w-])--a(p(p(r(o(v(e)?)?)?)?)?)?(?![\w-])", re.I)  # argparse-style prefixes
+READ_ONLY = {"cat", "grep", "rg", "head", "tail", "less", "more", "wc", "ls", "diff", "stat", "file", "bat"}
 
 
 def tokens(segment: str) -> list[str]:
     try:
-        return shlex.split(segment, comments=True)
+        tok = shlex.split(segment, comments=True)
     except ValueError:
-        return segment.split()
+        tok = segment.split()
+    return [t.lstrip("({`").rstrip(")}`") for t in tok if t.strip("(){}`")]  # (subshell), { group; }
 
 
 def strip_env(tok: list[str]) -> tuple[dict, list[str]]:
@@ -76,16 +89,19 @@ def send_mode(root: pathlib.Path, slug: str) -> str | None:
         return None
 
 
-def check_send(args: list[str], root: pathlib.Path) -> tuple[str, str] | None:
-    if "--dry-run" in args:
-        return None
-    approve = next((a.split("=", 1)[1] if "=" in a else (args[i + 1] if i + 1 < len(args) else "?")
-                    for i, a in enumerate(args) if a == "--approve" or a.startswith("--approve=")), None)
-    skip = {i + 1 for i, a in enumerate(args) if a == "--approve"}
-    slug = next((a for i, a in enumerate(args) if not a.startswith("-") and i not in skip), None)
-    if approve:
-        return "ask", (f"leadgen: this sends approved outreach batch {approve} for campaign {slug or '?'} by email. "
+def check_send(args: list[str], root: pathlib.Path, chained: bool) -> tuple[str, str] | None:
+    approve_at = [i for i, a in enumerate(args) if APPROVE_FLAG.fullmatch(a.split("=", 1)[0])]
+    if approve_at:
+        i = approve_at[0]
+        batch = args[i].split("=", 1)[1] if "=" in args[i] else (args[i + 1] if i + 1 < len(args) else "?")
+        return "ask", (f"leadgen: this sends approved outreach batch {batch} by email. "
                        "Approve only if you reviewed the preview.")
+    if "--dry-run" in args and not chained:
+        return None
+    if chained:
+        return "ask", ("leadgen send is chained with other commands, which could change the campaign first; "
+                       "run it on its own to skip this prompt")
+    slug = next((a for a in args if not a.startswith("-")), None)
     if not slug:
         return "ask", "leadgen send without a campaign slug; can't check its send_mode"
     mode = send_mode(root, slug)
@@ -96,7 +112,7 @@ def check_send(args: list[str], root: pathlib.Path) -> tuple[str, str] | None:
     return None
 
 
-def check_git_add(tok: list[str], here: pathlib.Path) -> tuple[str, str] | None:
+def check_git_add(tok: list[str], here: pathlib.Path, raw: str) -> tuple[str, str] | None:
     i = next((k for k, t in enumerate(tok) if t == "add" and "git" in [os.path.basename(x) for x in tok[:k]]), None)
     if i is None:
         return None
@@ -106,35 +122,83 @@ def check_git_add(tok: list[str], here: pathlib.Path) -> tuple[str, str] | None:
     if hit:
         return "deny", (f"leadgen PII guard: {', '.join(hit)} holds personal data (leads, contacts, do-not-contact list) "
                         "and stays out of git.")
+    if re.search(r"\.gitignore|info/exclude|excludesfile", raw, re.I):
+        return "deny", "leadgen PII guard: don't change ignore rules and `git add` in one command; do them separately."
     force = any(a in ("-f", "--force") or re.fullmatch(r"-[a-zA-Z]*f[a-zA-Z]*", a) for a in args)
-    broad = any(a == "--all" or re.fullmatch(r"-[a-zA-Z]*A[a-zA-Z]*", a) for a in args) or any(
-        p in (".", "*") or p.endswith("/") or "*" in p or (here / p).is_dir() for p in paths)
+    broad = any(a == "--all" or a.startswith("--pathspec-from-file") or re.fullmatch(r"-[a-zA-Z]*A[a-zA-Z]*", a)
+                for a in args) or any(p in (".", "*") or p.endswith("/") or p.startswith(":") or re.search(r"[*?\[]", p) or (here / p).is_dir()
+                           for p in paths)
     if force and broad:
         return "deny", ("leadgen PII guard: `git add -f` on a broad path would add gitignored campaign data. "
                         "Force-add specific files instead.")
     return None
 
 
+def read_only(cmd: str) -> bool:
+    """Every segment starts with a reading command and nothing redirects output."""
+    if ">" in cmd or "$(" in cmd or "`" in cmd:
+        return False
+    segs = [tokens(s) for s in SEPARATORS.split(cmd)]
+    return all(seg[0] in READ_ONLY for seg in segs if seg)
+
+
+def raw_fallback(cmd: str) -> tuple[str, str] | None:
+    """Catch what tokenizing can't see: $(...), sh -c '...', eval, python -c, xargs, write-then-move."""
+    if "leadgen" in cmd and (APPROVE_FLAG.search(cmd) or re.search(r"\bapprove\s*=", cmd)):
+        return "ask", "this command may send an approved leadgen outreach batch (found leadgen + approve)"
+    if "campaign.toml" in cmd and not read_only(cmd):
+        return "ask", ("this command may change a campaign.toml, which holds send_mode (who approves sending); "
+                       "edit it with the Edit tool instead")
+    return None
+
+
 def decide(command: str, cwd: str) -> tuple[str, str] | None:
-    """Strictest decision over all segments of the command: deny > ask > none."""
+    """Strictest decision over the command: deny > ask > none."""
     here = pathlib.Path(cwd or ".")
+    segs = [strip_env(tokens(s)) for s in SEPARATORS.split(command or "")]
+    segs = [(env, tok) for env, tok in segs if tok]
+    chained = len([t for _, t in segs if t[0] != "cd"]) > 1
     found = []
-    for seg in SEPARATORS.split(command or ""):
-        env, tok = strip_env(tokens(seg))
-        if not tok:
-            continue
+    for env, tok in segs:
         if tok[0] == "cd" and len(tok) > 1:
             here = (here / os.path.expanduser(tok[1])).resolve()
             continue
         root = pathlib.Path(env.get("LEADGEN_HOME") or os.environ.get("LEADGEN_HOME") or here)
         args = send_args(tok)
-        r = check_send(args, root) if args is not None else check_git_add(tok, here)
+        r = check_send(args, root, chained) if args is not None else check_git_add(tok, here, command)
         if r:
             found.append(r)
+    r = raw_fallback(command or "")
+    if r:
+        found.append(r)
     for level in ("deny", "ask"):
         for r in found:
             if r[0] == level:
                 return r
+    return None
+
+
+def decide_edit(tool: str, inp: dict) -> tuple[str, str] | None:
+    """Edit / Write / MultiEdit: protect send_mode and the ignore rules that keep campaign data out of git."""
+    path = pathlib.Path(inp.get("file_path") or "")
+    if tool == "Write":
+        new, old = inp.get("content") or "", None
+    else:
+        edits = inp.get("edits") or [{"old_string": inp.get("old_string"), "new_string": inp.get("new_string")}]
+        new = "\n".join(e.get("new_string") or "" for e in edits)
+        old = "\n".join(e.get("old_string") or "" for e in edits)
+    if path.name == "campaign.toml" and re.search(r"send_mode\s*=\s*['\"]auto['\"]", new):
+        return "ask", (f"setting send_mode = \"auto\" in {path} lets leadgen send email without asking; "
+                       "that's the user's decision")
+    if path.name == ".gitignore":
+        if old is None:
+            try:
+                old = path.read_text(encoding="utf-8")
+            except OSError:
+                old = ""
+        dropped = [e for e in IGNORE_ENTRIES if e in old and e not in new]
+        if dropped:
+            return "ask", f"this removes {', '.join(dropped)} from {path}, which keeps campaign personal data out of git"
     return None
 
 
@@ -143,9 +207,13 @@ def main() -> int:
         event = json.load(sys.stdin)
     except json.JSONDecodeError:
         return 0
-    if event.get("tool_name") != "Bash":
-        return 0
-    r = decide((event.get("tool_input") or {}).get("command") or "", event.get("cwd") or os.getcwd())
+    tool, inp = event.get("tool_name"), event.get("tool_input") or {}
+    if tool == "Bash":
+        r = decide(inp.get("command") or "", event.get("cwd") or os.getcwd())
+    elif tool in ("Edit", "Write", "MultiEdit"):
+        r = decide_edit(tool, inp)
+    else:
+        r = None
     if r:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": r[0],
                                                  "permissionDecisionReason": r[1]}}))
