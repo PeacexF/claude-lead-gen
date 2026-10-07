@@ -35,6 +35,20 @@ class PublicOnlyTest(unittest.TestCase):
         with self.assertRaises(http.UnsafeURL):
             http.Fetcher(delay=0, public_only=True).request("http://169.254.169.254/")
 
+    def test_connect_time_check_blocks_rebinding(self):
+        # the pre-check passes (public name), but the socket layer re-resolves and must refuse a private answer
+        import socket
+        from unittest import mock
+        fake = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 80))]
+        with mock.patch("socket.getaddrinfo", return_value=fake), self.assertRaises(http.UnsafeURL):
+            http._public_connection(("rebind.example", 80), 2)
+
+    def test_public_only_surfaces_unsafe_from_connect(self):
+        from unittest import mock
+        f = http.Fetcher(delay=0)
+        with mock.patch.object(http, "check_public"), self.assertRaises(http.UnsafeURL):
+            f.request("http://127.0.0.1:9/", public_only=True, cache=False)
+
     def test_crawler_refuses_internal_site(self):
         r = site.crawl(http.Fetcher(delay=0), "http://127.0.0.1:9/")
         self.assertFalse(r["reachable"])

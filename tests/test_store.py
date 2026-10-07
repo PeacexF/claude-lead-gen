@@ -20,13 +20,14 @@ class StoreTest(unittest.TestCase):
     def test_csv_neutralizes_formulas(self):
         lead = schema.empty_lead()
         lead.update(id="x.com", name='=HYPERLINK("http://evil","click")', notes="+1 cmd|' /C calc'!A0",
-                    address="@SUM(A1)", city="-2+3", segment="\tTab", score=-5)
+                    address="@SUM(A1)", city="-2+3", segment="\tTab", score=-5, website="  =1+1",
+                    domain="＝cmd")
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d) / "leads.csv"
             store.write_csv(p, [lead])
             with p.open() as fh:
                 row = next(csv.DictReader(fh))
-        for k in ("name", "notes", "address", "city", "segment"):
+        for k in ("name", "notes", "address", "city", "segment", "website", "domain"):
             self.assertTrue(row[k].startswith("'"), (k, row[k]))
         self.assertEqual(row["score"], "-5")  # numbers are left alone
         self.assertEqual(row["id"], "x.com")

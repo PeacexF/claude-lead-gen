@@ -74,12 +74,21 @@ def flatten(lead: dict) -> dict:
     }
 
 
-FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r", "\n", "＝", "＋", "－", "＠")
+
+
+def csv_cell(v):
+    """Neutralize spreadsheet formulas: scraped text like '=HYPERLINK(...)' must stay text in Excel/Sheets.
+
+    Checks the value after leading whitespace too (' =1+1'), since some spreadsheet apps trim before parsing.
+    """
+    if isinstance(v, str) and (v.startswith(FORMULA_START) or v.lstrip().startswith(FORMULA_START)):
+        return "'" + v
+    return v
 
 
 def csv_safe(row: dict) -> dict:
-    """Neutralize spreadsheet formulas: scraped text like '=HYPERLINK(...)' must stay text in Excel/Sheets."""
-    return {k: "'" + v if isinstance(v, str) and v.startswith(FORMULA_START) else v for k, v in row.items()}
+    return {k: csv_cell(v) for k, v in row.items()}
 
 
 def write_csv(path: pathlib.Path, leads: Iterable[dict]) -> int:

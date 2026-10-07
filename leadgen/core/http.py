@@ -6,11 +6,14 @@ than its delay. Stdlib only.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import ipaddress
 import json
+import os
 import pathlib
 import socket
 import ssl
+import tempfile
 import threading
 import time
 import urllib.error
@@ -39,8 +42,8 @@ def public_ip(addr: str) -> bool:
 def check_public(url: str) -> None:
     """Refuse URLs that could reach the local machine or private networks (SSRF guard for untrusted URLs).
 
-    Every address the host resolves to must be global unicast. DNS can still change between this check and the
-    connection (rebinding); that residual risk is accepted for a local CLI that only issues GETs.
+    Fails fast before throttling. The binding check is _public_connection, which validates the address the socket
+    actually connects to, so DNS rebinding between this check and the connection doesn't get through.
     """
     parts = urllib.parse.urlsplit(url)
     if parts.scheme not in ("http", "https"):
@@ -48,13 +51,59 @@ def check_public(url: str) -> None:
     host = parts.hostname
     if not host:
         raise UnsafeURL("no host")
+    _public_addrs(host, parts.port or (443 if parts.scheme == "https" else 80))
+
+
+def _public_addrs(host: str, port: int) -> list[tuple]:
     try:
-        infos = socket.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except socket.gaierror as e:
         raise urllib.error.URLError(e) from e
     bad = sorted({i[4][0] for i in infos if not public_ip(i[4][0])})
     if bad or not infos:
         raise UnsafeURL(f"non-public address for {host}: {', '.join(bad) or 'none'}")
+    return infos
+
+
+def _public_connection(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None, *a, **kw):
+    """socket.create_connection that resolves once, refuses non-public addresses, and connects to a checked one."""
+    host, port = address
+    last = None
+    for family, stype, proto, _, sockaddr in _public_addrs(host, port):
+        sock = socket.socket(family, stype, proto)
+        try:
+            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sockaddr)
+            return sock
+        except OSError as e:
+            last = e
+            sock.close()
+    raise last or OSError(f"cannot connect to {host}")
+
+
+class _PublicHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._create_connection = _public_connection  # __init__ sets it per instance, so override here
+
+
+class _PublicHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._create_connection = _public_connection  # SNI and cert checks still use the hostname
+
+
+class _PublicHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_PublicHTTPConnection, req)
+
+
+class _PublicHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_PublicHTTPSConnection, req, context=self._context)
 
 
 class _PublicRedirects(urllib.request.HTTPRedirectHandler):
@@ -144,14 +193,21 @@ class Fetcher:
                                        guard)
         if cp and status < 500:
             cp.parent.mkdir(parents=True, exist_ok=True)
-            cp.write_text(json.dumps({"status": status, "final": final, "text": text}))
+            fd, tmp = tempfile.mkstemp(dir=cp.parent, prefix=".tmp-")  # atomic: workers may share a key
+            with os.fdopen(fd, "w") as fh:
+                fh.write(json.dumps({"status": status, "final": final, "text": text}))
+            os.replace(tmp, cp)
         return status, final, text
 
     def _do(self, url, data, hdrs, method, max_bytes, html_only, insecure_fallback, public_only=False):
         req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
         for verify in ((True, False) if insecure_fallback else (True,)):
             ctx = ssl.create_default_context() if verify else ssl._create_unverified_context()
-            handlers = [urllib.request.HTTPSHandler(context=ctx)] + ([_PublicRedirects()] if public_only else [])
+            if public_only:  # no proxies: the connect-time address check must see the real target
+                handlers = [urllib.request.ProxyHandler({}), _PublicHTTPHandler(), _PublicHTTPSHandler(context=ctx),
+                            _PublicRedirects()]
+            else:
+                handlers = [urllib.request.HTTPSHandler(context=ctx)]
             try:
                 with urllib.request.build_opener(*handlers).open(req, timeout=self.timeout) as r:
                     ctype = r.headers.get("Content-Type", "")
@@ -170,6 +226,8 @@ class Fetcher:
                     pass
                 return e.code, url, body
             except (ssl.SSLError, urllib.error.URLError) as e:
+                if isinstance(getattr(e, "reason", None), UnsafeURL):
+                    raise e.reason from e  # do_open wraps it; surface the guard's own error
                 is_ssl = isinstance(e, ssl.SSLError) or isinstance(getattr(e, "reason", None), ssl.SSLError)
                 if verify and is_ssl:
                     continue
