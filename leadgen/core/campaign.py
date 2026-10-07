@@ -24,7 +24,7 @@ DEFAULTS: dict = {
     "scoring": {"rules": [], "tiers": {"A": 60, "B": 40, "C": 20}},
     "outreach": {"send_mode": "off", "daily_cap": 30, "per_domain_cap": 1, "channels": ["email"],
                  "compliance": "", "sender_name": "", "sender_company": "", "sender_address": "",
-                 "unsubscribe_text": "", "min_tier": "B"},
+                 "unsubscribe_text": "", "min_tier": "B", "followup_days": 4, "send_delay": 10, "ru_consent": False},
     "http": {"delay": 1.0, "cache": True},
 }
 
