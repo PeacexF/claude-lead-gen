@@ -67,8 +67,8 @@ Record outcomes with `leadgen mark <slug> <lead-id> <status> --note "..."` (`los
 `suppressed` for do-not-contact).
 
 Agents run in parallel but only read the shared files (`leads.jsonl`, `drafts.jsonl`, `suppression.txt`): they
-write their own outputs (dossiers, draft batches) and return the `leadgen mark` / `drafts add` commands. Run those
-yourself, one at a time. The CLI rewrites the whole file, so concurrent writers would lose changes.
+write their own outputs (dossiers, draft batches) and return the `leadgen mark` / `drafts add` commands. Review and
+run those yourself. Commands that write a campaign take its lock, so a second writer waits for the first.
 
 ## 6. Drafts: `outreach` skill
 

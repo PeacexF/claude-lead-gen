@@ -47,10 +47,10 @@ Write all drafts to the output path the task gives, as JSONL, one draft per line
 `campaigns/<slug>/outreach/batch-<first-lead-id>.jsonl`. Never write to a path inside a git repo outside
 `campaigns/`.
 
-**Don't run `leadgen drafts add`, `mark` or `send` yourself.** Other writers run beside you, and those
-commands rewrite `drafts.jsonl` and `leads.jsonl`, so parallel runs lose data. The main session adds every
-batch with `leadgen drafts <slug> add <path>`. That command validates all-or-nothing: one bad line rejects
-the batch, so check that each line is valid JSON with the fields above before you finish.
+**Don't run `leadgen drafts add`, `mark` or `send` yourself.** The main session reviews every batch and adds
+it with `leadgen drafts <slug> add <path>`, and other writers run beside you on the same campaign, where each
+write would make the others wait on the campaign lock. `drafts add` validates all-or-nothing: one bad line
+rejects the batch, so check that each line is valid JSON with the fields above before you finish.
 
 ## Report
 

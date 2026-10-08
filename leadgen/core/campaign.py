@@ -5,13 +5,20 @@ Workspace root = $LEADGEN_HOME or the current directory. Each campaign is campai
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import os
 import pathlib
 import re
 import shutil
+import sys
 import tomllib
+
+try:
+    import fcntl
+except ImportError:  # Windows: no advisory locks in the stdlib; commands then run unlocked
+    fcntl = None
 
 from .http import Fetcher, UA_BROWSER
 
@@ -118,6 +125,28 @@ class Campaign:
                 fh.write(("\n" if lines and lines[-1] else "") + "# leadgen: personal data, keep out of git\n"
                          + "\n".join(need) + "\n")
         return cls(slug, root)
+
+
+@contextlib.contextmanager
+def lock(campaign_dir: pathlib.Path):
+    """Exclusive lock on one campaign while a command rewrites its files.
+
+    leads.jsonl and drafts.jsonl are read, changed in memory and written back whole, so two commands writing at once
+    (parallel agents, a background `run` plus a `mark`) would lose one side's changes. The second command waits.
+    """
+    if fcntl is None or not campaign_dir.is_dir():
+        yield
+        return
+    with (campaign_dir / ".lock").open("a") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(f"waiting for another leadgen command on {campaign_dir.name} to finish...", file=sys.stderr)
+            fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
 
 
 def list_campaigns(root: pathlib.Path | None = None) -> list[str]:

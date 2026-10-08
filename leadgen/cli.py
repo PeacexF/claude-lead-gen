@@ -8,6 +8,7 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 sending refused (send_mode off, comp
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import pathlib
@@ -18,7 +19,7 @@ import sys
 
 from . import enrich, score, sources
 from .core import merge as merging
-from .core.campaign import Campaign, list_campaigns, workspace
+from .core.campaign import Campaign, list_campaigns, workspace, lock as campaign_lock
 from .core.store import read_jsonl, write_csv, write_jsonl
 from .outreach import drafts as drafting
 from .outreach import send as sending
@@ -543,11 +544,23 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+# Commands that rewrite campaign files (leads.jsonl, drafts.jsonl, raw/, outreach batches) hold the campaign lock.
+WRITERS = {cmd_collect, cmd_merge, cmd_enrich, cmd_score, cmd_run, cmd_mark, cmd_send}
+
+
+def write_lock(args):
+    writes = args.fn in WRITERS or (args.fn is cmd_drafts and args.action == "add")
+    if not writes or not getattr(args, "slug", None):
+        return contextlib.nullcontext()
+    return campaign_lock(workspace() / "campaigns" / args.slug)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     as_json = getattr(args, "json", False)
     try:
-        res, text = args.fn(args)
+        with write_lock(args):
+            res, text = args.fn(args)
     except (CLIError, FileNotFoundError, FileExistsError, KeyError) as e:
         msg = e.args[0] if isinstance(e, KeyError) and e.args else str(e)
         code = getattr(e, "code", 1)

@@ -36,9 +36,9 @@ that none was given.
 
 Other agents run beside you on the same campaign. **Don't run commands that write `leads.jsonl`,
 `drafts.jsonl` or `suppression.txt`**: `leadgen enrich`, `merge`, `score`, `run`, `mark`, `drafts add`,
-`suppress`, `send`. They rewrite the whole file, and parallel writes lose data. If the lead needs a re-crawl or a
-status change (closed, wrong segment, asked not to be contacted), say so in your report, and the main session
-runs it.
+`suppress`, `send`. Changes to the lead list are the main session's call, and a write holds the campaign lock,
+which stalls the other agents. If the lead needs a re-crawl or a status change (closed, wrong segment, asked
+not to be contacted), say so in your report, and the main session runs it.
 
 The only file you write is the dossier: `campaigns/<slug>/dossiers/<lead-id>.md` (create the directory if
 needed), or the path the task names. Without a campaign and without a path, don't write a file. Return the

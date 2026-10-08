@@ -6,10 +6,12 @@ import json
 import os
 import pathlib
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
 from leadgen import cli
+from leadgen.core import campaign
 from leadgen.core.campaign import Campaign
 from leadgen.core.store import read_jsonl
 
@@ -133,6 +135,25 @@ class CLITest(unittest.TestCase):
         self.assertEqual(m["suppressed"], ["sorriso.test"])
         self.assertIn("sorriso.test", (self.root / "suppression.txt").read_text())
         self.assertEqual(self.j("send", "t", "--dry-run")["ready"], [])
+
+    @unittest.skipIf(campaign.fcntl is None, "no advisory locks on this platform")
+    def test_writers_wait_for_the_campaign_lock(self):
+        camp = self.make_campaign()
+        self.j("run", "t", "--steps", "")
+        done = threading.Event()
+
+        def mark():
+            self.run_cli("mark", "t", "sorriso.test", "lost")
+            done.set()
+
+        with campaign.lock(camp.dir):  # stands in for another process, e.g. a parallel agent's `mark`
+            t = threading.Thread(target=mark)
+            t.start()
+            self.assertFalse(done.wait(0.3))
+            self.assertEqual(self.j("lead", "t", "sorriso.test")["status"], "new")  # readers don't wait
+        t.join(5)
+        self.assertTrue(done.is_set())
+        self.assertEqual(self.j("lead", "t", "sorriso.test")["status"], "lost")
 
     def test_errors(self):
         self.assertEqual(self.j("status", "nope", code=1)["code"], 1)

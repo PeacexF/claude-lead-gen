@@ -35,8 +35,8 @@ captchas and rate limits and mark the lead `unsure`.
 ## Shared files: read only
 
 Other qualifiers run beside you on other batches. **Don't run `leadgen mark`, `enrich`, `score`, `merge`, `run`,
-`drafts add`, `suppress` or `send`**: they rewrite `leads.jsonl` or `drafts.jsonl`, and parallel writes lose
-data. Return the commands. The main session runs them one at a time.
+`drafts add`, `suppress` or `send`**: they rewrite `leads.jsonl` or `drafts.jsonl`, and the main session decides
+what changes. Return the commands. The main session reviews and runs them.
 
 ## Report
 
