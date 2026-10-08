@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 
 from leadgen import cli, sources
+from leadgen.sources import hn_hiring
 from leadgen.core.campaign import PLUGIN_ROOT, Campaign
 from tests.fakes import FakeFetcher
 
@@ -32,6 +33,34 @@ def collect_unit(ctx, unit):
         raise LayoutChanged("no member table")
     return [{"source_id": n, "name": n, "sites": [n.lower() + ".test"], "city": "Porto"} for n in page]
 '''
+
+
+class HNHiringTest(unittest.TestCase):
+    def site_and_boards(self, html):
+        p = hn_hiring.parse_post(html)
+        return hn_hiring.company_site(p), [(b["ats"], b["token"]) for b in p["job_boards"]]
+
+    def test_site_is_the_company_not_any_link(self):
+        # an article linked in the body must not become the lead's domain (it's the merge key)
+        self.assertEqual(self.site_and_boards(
+            'Paramark | Engineer | SF<p>In the news: <a href="https://www.mercurynews.com/2025/x">article</a>. '
+            'Apply <a href="https://jobs.ashbyhq.com/paramark/123">here</a>'), (None, [("ashby", "paramark")]))
+        # a body link whose host looks like the company counts; a careers path yields the root
+        self.assertEqual(self.site_and_boards(
+            'Curai | ML | REMOTE<p>See <a href="https://curaihealth.com/careers">careers</a>'),
+            ("https://curaihealth.com/", []))
+        # a link in the headline counts even when the name differs; code hosts never do
+        self.assertEqual(self.site_and_boards(
+            'Acme | Backend | Remote | https://brandco.io<p><a href="https://github.com/acme/x">gh</a>'),
+            ("https://brandco.io/", []))
+        self.assertEqual(self.site_and_boards(
+            'Discord | SWE<p><a href="https://boards.greenhouse.io/discord/jobs/1">jobs</a>'),
+            (None, [("greenhouse", "discord")]))
+        # ATS hosts are never the site, even when the name matches; careers./jobs. subdomains give the company domain
+        self.assertEqual(self.site_and_boards('Axmed | Eng<p><a href="https://axmed.teamtailor.com/jobs/1">apply</a>')[0], None)
+        self.assertEqual(self.site_and_boards('Search Atlas | Eng | https://careers.searchatlas.com/x')[0],
+                         "https://searchatlas.com/")
+        self.assertEqual(hn_hiring.parse_post("Snout https://snout.co | Eng | Remote")["company"], "Snout")
 
 
 class SourcesTest(unittest.TestCase):

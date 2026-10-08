@@ -166,7 +166,7 @@ def cmd_merge(args):
 
 def fmt_enrich(r: dict) -> str:
     parts = [f"{s}: {v['done']} done, {v['failed']} failed" for s, v in r["stats"].items()]
-    return "\n".join([f"enriched {r['leads']} leads ({', '.join(r['steps']) or 'no steps'})", *parts]
+    return "\n".join([f"enrich ({', '.join(r['steps']) or 'no steps'}) over {r['leads']} leads; only those missing a step run", *parts]
                      + ([f"blocked: {', '.join(r['blocked'])}"] if r["blocked"] else []))
 
 

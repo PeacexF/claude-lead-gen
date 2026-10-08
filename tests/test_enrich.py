@@ -136,7 +136,7 @@ class DnsTest(unittest.TestCase):
 class JobsTest(unittest.TestCase):
     def lead(self, **kw):
         l = schema.empty_lead()
-        l.update(id="acme.test", domain="acme.test", name="Acme Robotics", **kw)
+        l.update({"id": "acme.test", "domain": "acme.test", "name": "Acme Robotics", **kw})
         return l
 
     def test_guesses(self):
@@ -164,8 +164,18 @@ class JobsTest(unittest.TestCase):
         l = self.lead(site={"job_boards": [{"ats": "ashby", "token": "acme-hq"}]})
         f = FakeFetcher({"https://api.ashbyhq.com/posting-api/job-board/acme-hq": {"jobs": [{"title": "PM", "jobUrl": "u"}]}})
         jobs.enrich(f, l)
-        self.assertTrue(l["jobs"]["boards"][0]["linked_from_site"])
+        self.assertEqual(l["jobs"]["boards"][0]["found_via"], "site")
         self.assertEqual(f.calls[0], "https://api.ashbyhq.com/posting-api/job-board/acme-hq")
+
+    def test_no_domain_uses_only_linked_boards(self):
+        board = {"jobs": [{"title": "PM", "jobUrl": "u", "descriptionPlain": "River is hiring"}]}
+        l = self.lead(domain=None, id="h-1", name="River")
+        f = FakeFetcher({"https://api.ashbyhq.com/posting-api/job-board/river": board})
+        jobs.enrich(f, l)
+        self.assertEqual((l["jobs"]["boards"], f.calls), ([], []))  # the name alone proves nothing
+        l = self.lead(domain=None, id="h-1", name="River", job_boards=[{"ats": "ashby", "token": "river"}])
+        jobs.enrich(f, l)
+        self.assertEqual(l["jobs"]["boards"][0]["found_via"], "source")
 
 
 class RegistryTest(unittest.TestCase):

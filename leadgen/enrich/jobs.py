@@ -1,9 +1,11 @@
 """Open roles from public ATS job boards (Greenhouse, Lever, Ashby), no key → hiring signal.
 
-Board tokens come from links the site crawl found (site.job_boards: certain), then from guesses built from the
-domain and company name (e.g. acme.com → "acme"). A guessed board is only accepted when it demonstrably belongs to
-the company: Greenhouse's company name on the postings matches, or the postings mention the company's domain or name. Otherwise a
-common token like "apex" would attach some other company's jobs to the lead.
+Board tokens come from links, which are certain: the ones the site crawl found (site.job_boards) and the ones a source
+saw in the company's own post (job_boards, e.g. an HN "Who is hiring?" comment). Then, only for leads with a domain,
+from guesses built from the domain and company name (e.g. acme.com → "acme"). A guessed board is only accepted when it
+demonstrably belongs to the company: Greenhouse's company name on the postings matches, or the postings mention the
+company's domain or name. Otherwise a common token like "apex" would attach some other company's jobs to the lead.
+A lead without a domain gets no guesses: a board found from the name alone would always "prove" that same name.
 """
 from __future__ import annotations
 
@@ -73,11 +75,15 @@ def belongs(jobs: list[dict], lead: dict) -> bool:
 
 
 def enrich(fetcher, lead: dict) -> dict:
-    found = [(b["ats"], b["token"], True) for b in (lead.get("site") or {}).get("job_boards") or [] if b["ats"] in APIS]
-    tried = {(a, t) for a, t, _ in found}
-    found += [(a, t, False) for t in guesses(lead) for a in APIS if (a, t) not in tried]
+    found = []
+    for how, links in (("site", (lead.get("site") or {}).get("job_boards")), ("source", lead.get("job_boards"))):
+        found += [(b["ats"], b["token"], how) for b in links or [] if b["ats"] in APIS
+                  and (b["ats"], b["token"]) not in {(a, t) for a, t, _ in found}]
+    if lead.get("domain"):
+        tried = {(a, t) for a, t, _ in found}
+        found += [(a, t, "guess") for t in guesses(lead) for a in APIS if (a, t) not in tried]
     boards, errors = [], []
-    for ats, token, linked in found:
+    for ats, token, how in found:
         try:
             jobs = fetch_board(fetcher, ats, token)
         except Exception as e:
@@ -85,9 +91,9 @@ def enrich(fetcher, lead: dict) -> dict:
             continue
         if jobs is None or not jobs:
             continue
-        if not linked and not belongs(jobs, lead):
+        if how == "guess" and not belongs(jobs, lead):
             continue
-        boards.append({"ats": ats, "token": token, "linked_from_site": linked, "open_roles": len(jobs),
+        boards.append({"ats": ats, "token": token, "found_via": how, "open_roles": len(jobs),
                        "roles": [{k: j.get(k) for k in ("title", "location", "team", "url", "posted")} for j in jobs[:25]]})
         if len(boards) >= 2:
             break

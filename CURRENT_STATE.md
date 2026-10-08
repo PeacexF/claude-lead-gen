@@ -32,10 +32,16 @@ exists, what was verified, and the exact next steps, so the next session can pic
 - Smoke tests: merge collapses the same domain across sources; INN checksum; tech detection; a live crawl of
   a real site found WordPress/WooCommerce/GTM/CF7/CookieYes.
 - Live (2026-10-07): MX/provider for real domains, Greenhouse/Ashby boards (and a common-token guess correctly rejected), RKN lookup, crawl through the SSRF-guarded opener.
-- `python3 -m unittest`: 57 offline tests (CI runs them on Python 3.11–3.14) (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
+- `python3 -m unittest`: 61 offline tests (CI runs them on Python 3.11–3.14) (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
   merge, CLI end to end on the `file` source, workspace adapters, LayoutChanged, the source template, hook decisions).
 - **Live end to end (2026-10-08):** `bin/leadgen run` on OSM dentists in Coimbra (limit 10): 10 leads, 5 sites crawled, MX checked,
   tiers A3/C4/D3, CSV exported; re-run fully cached (0.1 s, 0 leads re-enriched). Drafts/send not run live (no SMTP).
+- **Live `jobs` step (2026-10-09):** `hn_hiring` (python, remote, last thread: 32 posts) → site + jobs on all 32: 9 leads with open roles
+  from Greenhouse/Lever/Ashby, 0 errors. The run exposed and fixed: `hn_hiring` took any linked URL as the company site (a
+  mercurynews.com article became a lead's domain, which is the merge key); now only a headline link or a host that looks like
+  the company counts, ATS hosts never do, `careers.`/`jobs.` subdomains give the company domain, and ATS links in the post
+  become `job_boards` (found_via `source`). Leads without a domain no longer get name-guessed boards (the name check was
+  circular). Leads with a domain went from 7 to 21 of 32.
 
 ## Not started
 
@@ -62,6 +68,8 @@ exists, what was verified, and the exact next steps, so the next session can pic
   `leadgen run` redid those lookups (`tests/test_merge.py`). Any new enrichment block must be added to the carry-over
   list in `merge.merge`.
 - `site.people_from` is a heuristic. Treat its output as unverified until the contact-discovery skill checks it.
+- `hn_hiring` takes the first `|` segment of a post as the company. Posts that open with the role ("Senior Python Backend | ...")
+  give junk names. They have no domain, so they score low, but they're noise in the list.
 - SEC EDGAR returned 403 without a contact User-Agent, so it was left out of v1 sources. It needs a UA with an email if added.
 
 ## Resume

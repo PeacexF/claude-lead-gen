@@ -11,6 +11,7 @@ from __future__ import annotations
 import html as htmllib
 import re
 
+from ..core import schema
 from ..core.http import UA_BOT
 
 NAME = "hn_hiring"
@@ -46,10 +47,39 @@ def parse_post(raw_html: str) -> dict:
     first = t.strip().split("\n", 1)[0]
     parts = [p.strip() for p in first.split("|")]
     links = [htmllib.unescape(u) for u in re.findall(r'href="([^"]+)"', raw_html or "")]
-    company = re.sub(r"\s*\(.*?\)\s*$", "", parts[0]) if parts else ""
+    company = re.sub(r"\s*\(.*?\)\s*$", "", re.sub(r"\s*https?://\S+", "", parts[0])) if parts else ""
     urls_in_head = re.findall(r"https?://[^\s|)]+", first)
     return {"company": company[:120], "headline": first[:300], "parts": parts, "text": t[:3000],
-            "links": list(dict.fromkeys(urls_in_head + links))}
+            "links": list(dict.fromkeys(urls_in_head + links)), "head_links": urls_in_head,
+            "job_boards": schema.job_boards(" ".join([*urls_in_head, *links]))}
+
+
+NOT_SITE = re.compile(r"ycombinator\.com|workatastartup\.com|wellfound\.com|lever\.co|greenhouse\.io|ashbyhq|workable|"
+                      r"bamboohr|recruitee|personio|teamtailor\.com|smartrecruiters|myworkdayjobs|breezy\.hr|jobvite|"
+                      r"rippling-ats|dover\.(com|io)|github\.com|docs\.google|forms\.gle|notion\.(so|site)|calendly\.com",
+                      re.I)
+
+
+def looks_like(host: str, company: str) -> bool:
+    """Does a host plausibly belong to the company? (curaihealth.com ~ "Curai"; mercurynews.com !~ "Paramark")"""
+    nm = schema.norm_name(company)
+    compact = nm.replace(" ", "")
+    labels = [x for x in host.lower().split(".")[:-1] if len(x) >= 3 and x != "www"]
+    words = [w for w in nm.split() if len(w) >= 4]
+    return bool(compact) and any(compact in x or (len(x) >= 4 and x in compact) or any(w in x for w in words)
+                                 for x in labels)
+
+
+def company_site(p: dict) -> str | None:
+    """The company's own site: a link in the headline ("Company | Role | ... | url"), or one whose host looks like the
+    company name. Posts also link articles, products and docs, which must not become the lead's domain (the merge key)."""
+    for u in p["links"]:
+        h = schema.host(u)
+        if not h or NOT_SITE.search(u) or not schema.is_own_site(u):
+            continue
+        if u in p["head_links"] or looks_like(h, p["company"]):
+            return "https://" + re.sub(r"^(careers|jobs)\.(?=[^.]+\.)", "", h) + "/"  # careers.acme.com → acme.com
+    return None
 
 
 def matches(t: str, groups: list) -> bool:
@@ -80,8 +110,8 @@ def collect_unit(ctx, unit: dict) -> list[dict]:
             post_url = f"https://news.ycombinator.com/item?id={c['id']}"
             rows.append({
                 "source_id": c["id"], "url": post_url, "name": p["company"],
-                "sites": [u for u in p["links"] if not re.search(r"ycombinator\.com|lever\.co|greenhouse\.io|ashbyhq|workable|"
-                                                                    r"bamboohr|recruitee|jobs\.|/jobs|/careers", u)][:1],
+                "sites": [x for x in [company_site(p)] if x],
+                "job_boards": p["job_boards"],
                 "emails": re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", p["text"])[:3],
                 "segment": "hn_hiring", "categories": ["hiring"],
                 "signals": [{"type": "hiring", "value": p["headline"], "source": post_url, "date": (c.get("created_at") or "")[:10]}],

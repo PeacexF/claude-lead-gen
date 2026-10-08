@@ -24,6 +24,24 @@ NOT_OWN = re.compile(
     r"etsy\.com|amazon\.[a-z.]+|ebay\.[a-z.]+|clients\.site|bit\.ly|tinyurl\.com"
     r")$", re.I)
 
+# Public ATS job boards; a link to one names the company's board token.
+JOB_BOARD = re.compile(
+    r"https?://(?:(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io/(?:embed/job_board\?for=)?(?P<greenhouse>[\w-]+)|"
+    r"jobs\.(?:eu\.)?lever\.co/(?P<lever>[\w-]+)|jobs\.ashbyhq\.com/(?P<ashby>[\w.-]+)|"
+    r"apply\.workable\.com/(?P<workable>[\w-]+)|(?P<recruitee>[\w-]+)\.recruitee\.com|"
+    r"(?P<personio>[\w-]+)\.jobs\.personio\.(?:de|com)|(?P<bamboohr>[\w-]+)\.bamboohr\.com/(?:careers|jobs))", re.I)
+
+
+def job_boards(text: str) -> list[dict]:
+    """ATS board links in a page or post → [{ats, token, url}], deduped."""
+    boards = []
+    for m in JOB_BOARD.finditer(text or ""):
+        ats, token = next((k, v) for k, v in m.groupdict().items() if v)
+        if token.lower() not in ("embed", "js", "api", "www") and (ats, token.lower()) not in {(b["ats"], b["token"]) for b in boards}:
+            boards.append({"ats": ats, "token": token.lower(), "url": m.group(0)})
+    return boards
+
+
 SOCIAL_PATTERNS = {
     "linkedin": r"https?://([a-z]{2,3}\.)?linkedin\.com/(company|in|school)/[^/?#\s\"'<>]+",
     "facebook": r"https?://(www\.|m\.)?(facebook|fb)\.com/(?!sharer|share|plugins|dialog|tr\b|2008)[^?#\s\"'<>]+",
@@ -127,7 +145,7 @@ def empty_lead() -> dict:
         "address": None, "lat": None, "lon": None, "categories": [], "segment": None,
         "phones": [], "emails": [], "socials": {k: [] for k in SOCIAL_KEYS}, "people": [],
         "legal": {"name": None, "registry_ids": {}}, "rating": None, "reviews": None,
-        "site": {}, "signals": [], "sources": [], "score": None, "score_breakdown": {}, "tier": None,
+        "site": {}, "job_boards": [], "signals": [], "sources": [], "score": None, "score_breakdown": {}, "tier": None,
         "notes": "", "status": "new",
     }
 

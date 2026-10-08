@@ -31,6 +31,15 @@ class MergeTest(unittest.TestCase):
         self.assertEqual([l["id"] for l in leads], ["sorriso.test"])
         self.assertEqual(len(leads[0]["sources"]), 2)
 
+    def test_source_job_boards_are_kept_and_deduped(self):
+        b = {"ats": "ashby", "token": "river", "url": "https://jobs.ashbyhq.com/river"}
+        rows = [{"source": "hn_hiring", "name": "River", "url": "https://news.ycombinator.com/item?id=1", "job_boards": [b],
+                 "phones": ["+1 415 555 0100"]},
+                {"source": "file", "name": "River", "phones": ["+1 415 555 0100"], "job_boards": [b]}]
+        leads = merge(rows)
+        self.assertEqual(len(leads), 1)
+        self.assertEqual(leads[0]["job_boards"], [{**b, "source": "https://news.ycombinator.com/item?id=1"}])
+
 
 if __name__ == "__main__":
     unittest.main()

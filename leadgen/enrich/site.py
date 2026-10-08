@@ -48,11 +48,6 @@ ROLE_RX = (r"founder|co-?founder|owner|ceo|chief \w+ officer|managing director|d
            r"генеральный директор|директор|основатель|владелец|руководитель")
 ROLE = re.compile(rf"\b({ROLE_RX})\b", re.I)
 PERSON = re.compile(r"\b([A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'\-]{1,20}(?:\s[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'\-]{1,20}){1,2}|[А-ЯЁ][а-яё]{1,20}\s[А-ЯЁ][а-яё]{1,20}(?:\s[А-ЯЁ][а-яё]{1,20})?)\b")
-JOB_BOARD = re.compile(
-    r"https?://(?:(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io/(?:embed/job_board\?for=)?(?P<greenhouse>[\w-]+)|"
-    r"jobs\.(?:eu\.)?lever\.co/(?P<lever>[\w-]+)|jobs\.ashbyhq\.com/(?P<ashby>[\w.-]+)|"
-    r"apply\.workable\.com/(?P<workable>[\w-]+)|(?P<recruitee>[\w-]+)\.recruitee\.com|"
-    r"(?P<personio>[\w-]+)\.jobs\.personio\.(?:de|com)|(?P<bamboohr>[\w-]+)\.bamboohr\.com/(?:careers|jobs))", re.I)
 # words that sit next to names on team pages but aren't part of them; text is cut at these before name matching
 NOT_NAME_RX = (r"our|the|meet|team|about|contact|practice|office|clinic|studio|manager|dentist|doctor|dr|lead|senior|"
                r"junior|head|chief|officer|principal|associate|assistant|founder|co-founder|owner|partner|director|"
@@ -214,11 +209,7 @@ def crawl(fetcher, site: str, max_inner: int = 4) -> dict:
         ids["handelsregister"] = hr[0] if len(hr) == 1 else hr
     legal_names = list(dict.fromkeys(re.sub(r"\s+", " ", m).strip() for m in LEGAL_NAME.findall(alltext)))[:3]
 
-    boards = []
-    for m in JOB_BOARD.finditer(allhtml):
-        ats, token = next((k, v) for k, v in m.groupdict().items() if v)
-        if token.lower() not in ("embed", "js", "api", "www") and (ats, token.lower()) not in {(b["ats"], b["token"]) for b in boards}:
-            boards.append({"ats": ats, "token": token.lower(), "url": m.group(0)})
+    boards = schema.job_boards(allhtml)
 
     found_tech = sorted(set(tech.detect(allhtml)))
     years = [int(y) for y in COPYRIGHT.findall(low_home)]

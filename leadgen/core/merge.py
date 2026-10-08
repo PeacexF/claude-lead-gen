@@ -49,6 +49,7 @@ def normalize(rec: dict, default_cc: str | None = None) -> dict:
         "people": _as_list(rec.get("people")),
         "rating": rec.get("rating"), "reviews": rec.get("reviews"),
         "signals": _as_list(rec.get("signals")),
+        "job_boards": [{**b, "source": rec.get("url")} for b in _as_list(rec.get("job_boards"))],
         "sources": [{"source": rec.get("source"), "id": rec.get("source_id"), "url": rec.get("url"),
                      "collected": rec.get("collected"), "query": rec.get("segment")}],
     })
@@ -84,6 +85,8 @@ def _union(a: dict, b: dict) -> dict:
     a["people"] = (a.get("people") or []) + [p for p in b.get("people") or [] if (p.get("name"), p.get("role")) not in pk]
     sk = {(s.get("type"), str(s.get("value"))) for s in a.get("signals") or []}
     a["signals"] = (a.get("signals") or []) + [s for s in b.get("signals") or [] if (s.get("type"), str(s.get("value"))) not in sk]
+    jb = {(j.get("ats"), j.get("token")) for j in a.get("job_boards") or []}
+    a["job_boards"] = (a.get("job_boards") or []) + [j for j in b.get("job_boards") or [] if (j.get("ats"), j.get("token")) not in jb]
     srcs = {(s.get("source"), str(s.get("id")), s.get("url")) for s in a.get("sources") or []}
     a["sources"] = (a.get("sources") or []) + [s for s in b.get("sources") or [] if (s.get("source"), str(s.get("id")), s.get("url")) not in srcs]
     if b.get("rating") is not None:
