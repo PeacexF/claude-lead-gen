@@ -24,7 +24,7 @@ prints the formula, rule hits and tier counts. `leadgen.score` has the full refe
 
 Paths are dotted and fan out through lists: `emails.verified` with `eq = "mx"` matches when any email has MX.
 Useful paths: `site.reachable`, `site.https`, `site.builder`, `site.mobile`, `site.copyright_year`,
-`dns.mail_provider`, `jobs.open`, `rating`, `reviews`, `city`, `legal.registry_ids.inn`, `status`.
+`dns.mail_provider`, `jobs.open_roles`, `rating`, `reviews`, `city`, `legal.registry_ids.inn`, `status`.
 Signal types from enrichment: `no_website`, `outdated_site`, `no_https`, `broken_ssl`, `not_mobile_friendly`,
 `form_without_privacy_link`, `no_mx`, `hiring`, plus whatever sources add.
 
