@@ -1,6 +1,6 @@
-# Current state — 2026-10-08
+# Current state — 2026-10-09
 
-Milestones 1–6 of [SPEC.md](SPEC.md) §11 are done, plus the CLI, hooks, CI and the skills; agents and commands are next. This file says what
+Milestones 1–6 of [SPEC.md](SPEC.md) §11 are done, plus the CLI, hooks, CI, the skills and the agents; commands are next. This file says what
 exists, what was verified, and the exact next steps, so the next session can pick up without re-deriving anything.
 
 ## Done
@@ -17,7 +17,8 @@ exists, what was verified, and the exact next steps, so the next session can pic
 | parser-builder | **Done (2026-10-08).** `skills/parser-builder/SKILL.md` + `references/patterns.md`: guidebook for building a parser (source adapter) for one specific source. Core: workspace adapters (`<workspace>/leadgen_sources/<name>.py`; loaded only when the campaign's `[[sources]]` names them, never to list them; path logged on load), `sources.LayoutChanged` (unit fails loudly; two in a row stop the source; kwork/flru raise it), `leadgen inspect` (fill rate per field, samples, duplicate ids), `templates/source.py` (tested as a working adapter). Plan: `docs/plans/parser-builder-skill.md`. |
 | Hooks | **Done (2026-10-08).** `hooks/hooks.json` → `hooks/guard.py` (PreToolUse/Bash). Send gate: **ask** on `leadgen send --approve` and when the campaign/send_mode can't be read; dry runs, confirm previews, `auto` and `off` pass through. PII guard: **deny** `git add` of `campaigns/`, `suppression.txt`, `*.leads.*`, `leadgen_sources/*_fixtures/`, and `git add -f` on broad paths. Never answers allow (a chained command could ride on it). Follows `cd` and `LEADGEN_HOME=` in the command. Hardened after review (2026-10-08): argparse abbreviations (`--appr`; the CLI now sets `allow_abbrev=False`), sends chained with other commands, `$(…)`/`sh -c`/`python -c` indirection (raw-text fallback), Bash writes to `campaign.toml`, case-insensitive paths, pathspec magic/globs and `--pathspec-from-file` with `-f`, ignore-rule edits in the same command; Edit/Write that set `send_mode = "auto"` or drop ignore entries ask. **Limit:** a guardrail, not a sandbox: Bash can always reach SMTP or git another way. |
 | CI | **Done (2026-10-08).** `.github/workflows/ci.yml`: unittest + CLI smoke on Python 3.11–3.14; `claude plugin validate` (Claude Code pinned 2.1.293, no auth needed) on the marketplace, plugin, and providers. |
-| Skills | **Done (2026-10-08).** `skills/`: lead-gen (orchestrator), icp-builder, lead-sourcing, lead-scoring, company-research, contact-discovery, outreach, compliance, parser-builder. They reference agents that don't exist yet (company-researcher, lead-qualifier, outreach-writer, fact-checker). |
+| Skills | **Done (2026-10-08).** `skills/`: lead-gen (orchestrator), icp-builder, lead-sourcing, lead-scoring, company-research, contact-discovery, outreach, compliance, parser-builder. They call the agents below by name. |
+| Agents | **Done (2026-10-09).** `agents/`: company-researcher (one dossier → `dossiers/<id>.md`; Playwright tools listed by their plugin names `mcp__plugin_leadgen_playwright__*`), lead-qualifier (verdict table + `leadgen mark` commands), outreach-writer (JSONL batch file for `drafts add`), fact-checker (per-claim verdicts, read only). Model `sonnet`, tools restricted per agent. They load as `leadgen:<name>` (checked with `claude -p --plugin-dir .`). **Shared-file rule:** agents never run CLI commands that rewrite `leads.jsonl`/`drafts.jsonl`/`suppression.txt` (no lock; parallel writers lose data). They return the commands and the main session runs them one at a time (also stated in the lead-gen and outreach skills). |
 | Templates | `templates/campaign.toml` (sources, enrich, scoring rules, tiers, outreach send modes) and `templates/brief.md`. |
 
 ### Verified so far
@@ -28,24 +29,20 @@ exists, what was verified, and the exact next steps, so the next session can pic
 - Smoke tests: merge collapses the same domain across sources; INN checksum; tech detection; a live crawl of
   a real site found WordPress/WooCommerce/GTM/CF7/CookieYes.
 - Live (2026-10-07): MX/provider for real domains, Greenhouse/Ashby boards (and a common-token guess correctly rejected), RKN lookup, crawl through the SSRF-guarded opener.
-- `python3 -m unittest`: 57 offline tests (CI runs them on Python 3.11–3.14) (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
+- `python3 -m unittest`: 56 offline tests (CI runs them on Python 3.11–3.14) (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
   merge, CLI end to end on the `file` source, workspace adapters, LayoutChanged, the source template, hook decisions).
 - **Live end to end (2026-10-08):** `bin/leadgen run` on OSM dentists in Coimbra (limit 10): 10 leads, 5 sites crawled, MX checked,
   tiers A3/C4/D3, CSV exported; re-run fully cached (0.1 s, 0 leads re-enriched). Drafts/send not run live (no SMTP).
 
 ## Not started
 
-1. **Agents** (`agents/<name>.md`, frontmatter `name`, `description`, `tools` as a comma-separated list, optional `model`):
-   company-researcher (one dossier, `company-research` skill), lead-qualifier (batch of A/B leads vs ICP, flags false
-   positives, `leadgen mark`), outreach-writer (batch of drafts as JSONL for `leadgen drafts add`), fact-checker (verifies
-   every claim in a dossier or draft against its cited source). The skills already call them by these names.
-2. **Commands** (`commands/<name>.md`, namespaced `/leadgen:<name>`): new, run, research, drafts, send, status, setup.
+1. **Commands** (`commands/<name>.md`, namespaced `/leadgen:<name>`): new, run, research, drafts, send, status, setup.
    Thin entry points into the skills; `send` must follow the outreach skill's gated flow.
-3. **Docs:** README (install, quickstart), `docs/architecture.md`, `configuration.md`, `sources.md`, `compliance.md`
+2. **Docs:** README (install, quickstart), `docs/architecture.md`, `configuration.md`, `sources.md`, `compliance.md`
    (include the guard's threat model: keep SMTP_* out of the session and run `--approve` yourself for a hard guarantee).
-4. **Live smoke test:** OSM → CSV done (see Verified). Still to run live: `jobs`/`registry` steps, a RU source, drafts → `send` in
+3. **Live smoke test:** OSM → CSV done (see Verified). Still to run live: `jobs`/`registry` steps, a RU source, drafts → `send` in
    confirm mode against a test SMTP inbox; `leadgen setup 2gis` on a clean machine.
-5. **Deferred by the owner (2026-10-08):** niche research is its own future skill. `niche-research` skill, `leadgen market`
+4. **Deferred by the owner (2026-10-08):** niche research is its own future skill. `niche-research` skill, `leadgen market`
    (port claude-kit `normalize_orders.py`, `label_orders.py`, `clusters.py`, `segments.py`, `score.py`), the
    `market-scanner` agent and `/leadgen:niches` wait for it. parser-builder is separate and done.
 
@@ -73,4 +70,4 @@ exists, what was verified, and the exact next steps, so the next session can pic
 cd claude-lead-gen
 bin/leadgen doctor && bin/leadgen sources
 ```
-Run `python3 -m unittest`, then continue with "Not started" item 1 (agents). Commit and push after each item, to `main` (owner decision).
+Run `python3 -m unittest`, then continue with "Not started" item 1 (commands). Commit and push after each item, to `main` (owner decision).

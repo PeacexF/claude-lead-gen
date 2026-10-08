@@ -12,7 +12,9 @@ reviewer or the `fact-checker` agent can verify each claim the message makes.
 
 Leads at or above `[outreach] min_tier` (default B) with status `new`/`drafted`, not suppressed, with a usable
 route (`contact-discovery`). Get the list with `leadgen export <slug> --min-tier B --has-email` or from
-`leads.jsonl`. For big batches, spawn `outreach-writer` agents (about 20 leads each), in parallel.
+`leads.jsonl`. For big batches, spawn `outreach-writer` agents (about 20 leads each), in parallel. Each writes
+its batch to a JSONL file and returns the path. Add the files yourself, one `leadgen drafts <slug> add` at a time:
+the store has no lock, so parallel adds would lose drafts.
 
 ## Writing one message
 
