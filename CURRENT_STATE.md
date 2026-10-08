@@ -1,6 +1,6 @@
 # Current state — 2026-10-09
 
-Milestones 1–6 of [SPEC.md](SPEC.md) §11 are done, plus the CLI, hooks, CI, the skills and the agents; commands are next. This file says what
+Milestones 1–6 of [SPEC.md](SPEC.md) §11 are done, plus the CLI, hooks, CI, skills, agents and commands; docs are next. This file says what
 exists, what was verified, and the exact next steps, so the next session can pick up without re-deriving anything.
 
 ## Done
@@ -20,6 +20,7 @@ exists, what was verified, and the exact next steps, so the next session can pic
 | Skills | **Done (2026-10-08).** `skills/`: lead-gen (orchestrator), icp-builder, lead-sourcing, lead-scoring, company-research, contact-discovery, outreach, compliance, parser-builder. They call the agents below by name. |
 | Agents | **Done (2026-10-09).** `agents/`: company-researcher (one dossier → `dossiers/<id>.md`; Playwright tools listed by their plugin names `mcp__plugin_leadgen_playwright__*`), lead-qualifier (verdict table + `leadgen mark` commands), outreach-writer (JSONL batch file for `drafts add`), fact-checker (per-claim verdicts, read only). Model `sonnet`, tools restricted per agent. They load as `leadgen:<name>` (checked with `claude -p --plugin-dir .`). **Shared-file rule:** agents never run CLI commands that rewrite `leads.jsonl`/`drafts.jsonl`/`suppression.txt` They return the commands and the main session reviews and runs them (also stated in the lead-gen and outreach skills). |
 | Campaign lock | **Done (2026-10-09).** `campaign.lock(dir)`: `fcntl.flock` on `campaigns/<slug>/.lock`, held by every command that rewrites campaign files (`collect, merge, enrich, score, run, mark, send, drafts add`; `cli.WRITERS`). A second writer prints "waiting for another leadgen command…" and blocks; readers (`status, lead, export, inspect, drafts list/show`) don't lock (writes are atomic renames). No-op on Windows (no `fcntl`). Test: `tests/test_cli.py` (fails with locking off). |
+| Commands | **Done (2026-10-09).** `commands/`: `/leadgen:new` (init + ICP + source plan, stops for a yes before collecting), `run`, `research` (dossier; parallel `company-researcher` agents for several), `drafts` (writers → fact-checker → `drafts add`), `send` (`disable-model-invocation: true`: only the user starts it; compliance checklist → dry run → by `send_mode`, approval per batch), `status` and `setup` (pre-allow only `leadgen status/doctor/sources`). Thin entry points into the skills. Checked live: `claude -p --plugin-dir . "/leadgen:status demo"` in a temp workspace ran the plugin's `leadgen` from PATH. `/leadgen:niches` waits for niche research. |
 | Templates | `templates/campaign.toml` (sources, enrich, scoring rules, tiers, outreach send modes) and `templates/brief.md`. |
 
 ### Verified so far
@@ -37,13 +38,11 @@ exists, what was verified, and the exact next steps, so the next session can pic
 
 ## Not started
 
-1. **Commands** (`commands/<name>.md`, namespaced `/leadgen:<name>`): new, run, research, drafts, send, status, setup.
-   Thin entry points into the skills; `send` must follow the outreach skill's gated flow.
-2. **Docs:** README (install, quickstart), `docs/architecture.md`, `configuration.md`, `sources.md`, `compliance.md`
+1. **Docs:** README (install, quickstart), `docs/architecture.md`, `configuration.md`, `sources.md`, `compliance.md`
    (include the guard's threat model: keep SMTP_* out of the session and run `--approve` yourself for a hard guarantee).
-3. **Live smoke test:** OSM → CSV done (see Verified). Still to run live: `jobs`/`registry` steps, a RU source, drafts → `send` in
+2. **Live smoke test:** OSM → CSV done (see Verified). Still to run live: `jobs`/`registry` steps, a RU source, drafts → `send` in
    confirm mode against a test SMTP inbox; `leadgen setup 2gis` on a clean machine.
-4. **Deferred by the owner (2026-10-08):** niche research is its own future skill. `niche-research` skill, `leadgen market`
+3. **Deferred by the owner (2026-10-08):** niche research is its own future skill. `niche-research` skill, `leadgen market`
    (port claude-kit `normalize_orders.py`, `label_orders.py`, `clusters.py`, `segments.py`, `score.py`), the
    `market-scanner` agent and `/leadgen:niches` wait for it. parser-builder is separate and done.
 
@@ -71,4 +70,4 @@ exists, what was verified, and the exact next steps, so the next session can pic
 cd claude-lead-gen
 bin/leadgen doctor && bin/leadgen sources
 ```
-Run `python3 -m unittest`, then continue with "Not started" item 1 (commands). Commit and push after each item, to `main` (owner decision).
+Run `python3 -m unittest`, then continue with "Not started" item 1 (docs). Commit and push after each item, to `main` (owner decision).
