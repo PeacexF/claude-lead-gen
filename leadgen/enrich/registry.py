@@ -63,7 +63,7 @@ def rkn(fetcher, lead: dict) -> dict | None:
         out["by_inn"][inn] = {"registered": bool(entries), "entries": entries, "url": url}
     out["registered"] = any(v["registered"] for v in out["by_inn"].values())
     first = next((v for v in out["by_inn"].values() if v["entries"]), None)
-    if first and not (lead.get("legal") or {}).get("name"):
+    if first:  # the registry's name for this ИНН beats one read off the site (that can be the bank in the requisites)
         lead.setdefault("legal", {"name": None, "registry_ids": {}})["name"] = first["entries"][0]["name"]
     if not out["registered"]:
         schema.add_signal(lead, "not_in_pd_registry", f"ИНН {', '.join(inns)} not in RKN operator registry",
@@ -100,7 +100,7 @@ def companies_house(fetcher, lead: dict) -> dict | None:
                      for o in officers[:10]],
     }
     legal = lead.setdefault("legal", {"name": None, "registry_ids": {}})
-    legal["name"] = legal.get("name") or out["name"]
+    legal["name"] = out["name"] or legal.get("name")  # official name by company number beats the site's
     have = {p.get("name") for p in lead.get("people") or []}
     for o in out["officers"]:
         if o["name"] and o["name"] not in have:

@@ -32,7 +32,7 @@ exists, what was verified, and the exact next steps, so the next session can pic
 - Smoke tests: merge collapses the same domain across sources; INN checksum; tech detection; a live crawl of
   a real site found WordPress/WooCommerce/GTM/CF7/CookieYes.
 - Live (2026-10-07): MX/provider for real domains, Greenhouse/Ashby boards (and a common-token guess correctly rejected), RKN lookup, crawl through the SSRF-guarded opener.
-- `python3 -m unittest`: 61 offline tests (CI runs them on Python 3.11–3.14) (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
+- `python3 -m unittest`: 60 offline tests (CI runs them on Python 3.11–3.14) (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
   merge, CLI end to end on the `file` source, workspace adapters, LayoutChanged, the source template, hook decisions).
 - **Live end to end (2026-10-08):** `bin/leadgen run` on OSM dentists in Coimbra (limit 10): 10 leads, 5 sites crawled, MX checked,
   tiers A3/C4/D3, CSV exported; re-run fully cached (0.1 s, 0 leads re-enriched). Drafts/send not run live (no SMTP).
@@ -42,11 +42,21 @@ exists, what was verified, and the exact next steps, so the next session can pic
   the company counts, ATS hosts never do, `careers.`/`jobs.` subdomains give the company domain, and ATS links in the post
   become `job_boards` (found_via `source`). Leads without a domain no longer get name-guessed boards (the name check was
   circular). Leads with a domain went from 7 to 21 of 32.
+- **Live RU + registry (2026-10-09):** `yandex_maps` (стоматология, kazan, 1 page): 25 rows → 22 leads, no captcha; site 21/22,
+  MX on 16, ИНН on 9, RKN lookups 9 (8 registered, 1 `not_in_pd_registry`). Fixed: the crawl took the first legal name on
+  the page, which was the bank in the requisites ("АО РАЙФФАЙЗЕНБАНК"); bank names are now skipped, and the registry's
+  name for the ИНН / company number replaces a crawled one (RKN and Companies House).
+- **Live send path (2026-10-09), local SMTP sink, nothing left the machine:** `file` source → drafts → `send --dry-run` →
+  confirm preview → `--approve` over STARTTLS with certificate verification + AUTH (sink on 127.0.0.1 with a throwaway
+  cert via `SSL_CERT_FILE`). Messages carry the can-spam footer and `List-Unsubscribe`; re-approving the batch is refused;
+  lead/draft status → sent; `per_domain_cap` held back a same-day follow-up; with the cap raised, step 2 went out with
+  `In-Reply-To`/`References` = step 1's `Message-ID`. There's no plain-SMTP mode (TLS is always required), by design.
 
 ## Not started
 
-1. **Live smoke test:** OSM → CSV done (see Verified). Still to run live: `jobs`/`registry` steps, a RU source, drafts → `send` in
-   confirm mode against a test SMTP inbox; `leadgen setup 2gis` on a clean machine.
+1. **Live smoke test:** OSM, HN + `jobs`, Yandex Maps + RKN, and the send path are done (see Verified). Still to run:
+   `leadgen setup 2gis` + the `twogis` source on a clean machine (opens Chrome), `companies_house` (needs a key), and a send
+   through a real provider's SMTP to an inbox the owner controls.
 2. **Deferred by the owner (2026-10-08):** niche research is its own future skill. `niche-research` skill, `leadgen market`
    (port claude-kit `normalize_orders.py`, `label_orders.py`, `clusters.py`, `segments.py`, `score.py`), the
    `market-scanner` agent and `/leadgen:niches` wait for it. parser-builder is separate and done.
@@ -70,6 +80,8 @@ exists, what was verified, and the exact next steps, so the next session can pic
 - `site.people_from` is a heuristic. Treat its output as unverified until the contact-discovery skill checks it.
 - `hn_hiring` takes the first `|` segment of a post as the company. Posts that open with the role ("Senior Python Backend | ...")
   give junk names. They have no domain, so they score low, but they're noise in the list.
+- The crawl collects every ОГРН on a site's pages, so requisites that also list the bank's or a licensor's give several
+  `legal.registry_ids.ogrn` values. The ИНН list has the same risk, but it was single-valued in the live run.
 - SEC EDGAR returned 403 without a contact User-Agent, so it was left out of v1 sources. It needs a UA with an email if added.
 
 ## Resume

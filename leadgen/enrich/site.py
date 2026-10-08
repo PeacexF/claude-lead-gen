@@ -41,6 +41,7 @@ DE_HR = re.compile(r"\b(HR[AB]\s?\d{3,6}(?:\s?[A-Z])?)\b")
 LEGAL_NAME = re.compile(
     r"((?:ООО|ОАО|АО|ЗАО|ПАО|АНО)\s*[«\"“][^»\"”]{2,60}[»\"”]|(?:ИП|Индивидуальный предприниматель)\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){0,2}|"
     r"\b[A-Z][\w&.,'\- ]{1,60}?\s(?:Ltd|Limited|LLC|L\.L\.C\.|Inc\.?|GmbH|UG|AG|S\.?L\.?|S\.?A\.?|Lda\.?|S\.?r\.?l\.?|B\.?V\.?|SAS|SARL|Sp\. z o\.o\.|Oy|AB|ApS|AS|plc)\b)")
+BANK = re.compile(r"банк|\bbank\b|sparkasse|banco|banque", re.I)
 ROLE_RX = (r"founder|co-?founder|owner|ceo|chief \w+ officer|managing director|director|"
            r"(?:general|practice|office|operations|marketing|sales|clinic|studio) manager|"
            r"head of \w+|partner|principal|president|vp (?:of )?\w+|cto|cmo|coo|cfo|"
@@ -207,7 +208,8 @@ def crawl(fetcher, site: str, max_inner: int = 4) -> dict:
     hr = sorted(set(DE_HR.findall(alltext))) if re.search(r"amtsgericht|registergericht|handelsregister", alltext, re.I) else []
     if hr:
         ids["handelsregister"] = hr[0] if len(hr) == 1 else hr
-    legal_names = list(dict.fromkeys(re.sub(r"\s+", " ", m).strip() for m in LEGAL_NAME.findall(alltext)))[:3]
+    legal_names = list(dict.fromkeys(re.sub(r"\s+", " ", m).strip() for m in LEGAL_NAME.findall(alltext)
+                                     if not BANK.search(m)))[:3]  # requisites name the business's bank too
 
     boards = schema.job_boards(allhtml)
 

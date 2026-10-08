@@ -41,6 +41,8 @@ class SiteCrawlTest(unittest.TestCase):
         self.assertEqual(ids["company_number"], "01234567")
         self.assertEqual(ids["vat"], "GB123456789")
         self.assertTrue(any("Harbor Dental Studio LLC" in n for n in self.r["legal_names"]))
+        self.assertIn("ООО «Ромашка»", self.r["legal_names"])
+        self.assertFalse(any("Банк" in n for n in self.r["legal_names"]))  # the bank in the requisites isn't the business
 
     def test_tech_health_and_boards(self):
         self.assertIn("wordpress", self.r["tech"])
@@ -186,6 +188,11 @@ class RegistryTest(unittest.TestCase):
         registry.enrich(FakeFetcher({url: fixture("rkn/found.html")}), lead, ["rkn"])
         self.assertTrue(lead["registry"]["rkn"]["registered"])
         self.assertEqual(lead["registry"]["rkn"]["by_inn"][INN]["entries"][0]["regn"], "77-00-000001")
+        self.assertIn("Пример", lead["legal"]["name"])
+        # the registry's name for the ИНН replaces a name read off the site (often the bank in the requisites)
+        lead = schema.empty_lead()
+        lead["legal"] = {"name": 'АО "РАЙФФАЙЗЕНБАНК"', "registry_ids": {"inn": INN}}
+        registry.enrich(FakeFetcher({url: fixture("rkn/found.html")}), lead, ["rkn"])
         self.assertIn("Пример", lead["legal"]["name"])
 
         lead = schema.empty_lead()
