@@ -37,10 +37,13 @@ def text(fragment: str) -> str:
     return re.sub(r"[ \t]+", " ", htmllib.unescape(t)).strip()
 
 
-def budget_from_text(t: str) -> float | None:
-    m = re.search(r"(?:бюджет|оплата|цена|стоимость|budget|rate|pay)[^0-9]{0,20}(\d[\d \xa0,]{2,9})\s*(?:₽|руб|р\b|rub|\$|usd|€|eur)",
+CURRENCIES = {"₽": "RUB", "руб": "RUB", "р": "RUB", "rub": "RUB", "$": "USD", "usd": "USD", "€": "EUR", "eur": "EUR"}
+
+
+def budget_from_text(t: str) -> tuple[float | None, str | None]:
+    m = re.search(r"(?:бюджет|оплата|цена|стоимость|budget|rate|pay)[^0-9]{0,20}(\d[\d \xa0,]{2,9})\s*(₽|руб|р\b|rub|\$|usd|€|eur)",
                   t, re.I)
-    return float(re.sub(r"\D", "", m.group(1))) if m else None
+    return (float(re.sub(r"\D", "", m.group(1))), CURRENCIES[m.group(2).lower()]) if m else (None, None)
 
 
 def parse(page: str, channel: str) -> list[dict]:
@@ -54,10 +57,11 @@ def parse(page: str, channel: str) -> list[dict]:
             continue
         t = text(body.group(1))
         first, _, rest = t.partition("\n")
+        budget, currency = budget_from_text(t)
         posts.append({"source_id": int(pid.group(1)), "url": f"https://t.me/{channel}/{pid.group(1)}", "channel": channel,
                       "created": date.group(1) if date else None, "views": views.group(1) if views else None,
-                      "title": first[:200], "description": rest[:3000], "budget": budget_from_text(t),
-                      "budget_max": None, "currency": None, "category": None, "offers": None, "type": "post"})
+                      "title": first[:200], "description": rest[:3000], "budget": budget,
+                      "budget_max": None, "currency": currency, "category": None, "offers": None, "type": "post"})
     return posts
 
 

@@ -1,8 +1,8 @@
 # Sources
 
 A source adapter turns one place (an API, a directory, a file) into rows. Rows from `businesses` sources merge
-into `leads.jsonl`. Rows from `demand` sources (orders, tenders, channel posts) are for niche research and stay in
-`raw/`. `leadgen sources` lists every adapter with its coverage and whether it's ready (key set, tool installed).
+into `leads.jsonl`. Rows from `demand` sources (orders, tenders, channel posts) are for niche research: they stay in
+`raw/`, and `leadgen market` reads them. `leadgen sources` lists every adapter with its coverage and whether it's ready (key set, tool installed).
 
 How to choose sources for a market is in the `lead-sourcing` skill. This page is the reference.
 
@@ -25,13 +25,19 @@ How to choose sources for a market is in the `lead-sourcing` skill. This page is
 
 | Type | Coverage | Gives |
 |---|---|---|
-| `kwork` | RU | Buyer orders: budget, category, number of offers. |
-| `flru` | RU | FL.ru projects: budget, type, offers. |
-| `pchel` | RU/CIS | pchel.net projects: budget, categories, offers. |
+| `kwork` | RU | Buyer orders: budget, category, number of offers, created date, buyer hire rate. |
+| `flru` | RU | FL.ru projects: budget, type (project, vacancy, contest), offers. Dates are relative ("4 часа"), so age filters skip them. |
+| `pchel` | RU/CIS | pchel.net projects: budget (mostly USD), categories, offers. No dates, and old projects stay listed. |
 | `workspace_ru` | RU | workspace.ru tenders: budget, service, participants, customer city. Customers are businesses, so these double as warm leads. |
-| `telegram` | Global | Public channel posts via `t.me/s/<channel>` (no account). Order channels, news, competitors. |
+| `telegram` | Global | Public channel posts via `t.me/s/<channel>` (no account). Order channels, news, competitors. A stated budget is parsed with its currency. |
 
-Demand sources are snapshots: they re-collect at most once a day.
+Demand sources are snapshots: they re-collect at most once a day. `leadgen market` reads every day's snapshot and
+keeps each order once (the latest version wins), so orders accumulate across runs.
+
+A demand row (built in or from a workspace adapter) uses these keys, all optional: `source_id, url, title,
+description, budget, budget_max, currency, category, offers, created, type, channel`. `url` is the evidence link.
+`budget` is the stated minimum and `budget_max` the maximum. `created` may be an ISO date, `DD.MM.YYYY` or a unix
+timestamp. `type` is `project`, `vacancy`, `tender`, `post`... and vacancy salaries never count as budgets.
 
 ## Spec keys
 

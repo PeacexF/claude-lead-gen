@@ -10,7 +10,7 @@
     {
       "name": "leadgen",
       "source": "./",
-      "description": "Core lead-gen agent: skills, subagents, commands, hooks, the leadgen CLI, and the free Playwright MCP.",
+      "description": "Core lead-gen and niche-research agent: skills, subagents, commands, hooks, the leadgen CLI, and the free Playwright MCP.",
       "category": "productivity"
     },
     {

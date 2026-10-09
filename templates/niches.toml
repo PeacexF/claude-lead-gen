@@ -1,0 +1,94 @@
+# leadgen niche study (leadgen init <slug> --niches). Docs: docs/configuration.md#market, skill: niche-research.
+# Demand sources collect what businesses pay for; business sources sample who could buy (supply).
+# `leadgen collect <slug>` fetches, `leadgen run <slug>` also merges + crawls the supply sample, and
+# `leadgen market <slug> scan` builds the tables in campaigns/<slug>/market/.
+
+[campaign]
+name = ""
+offer = ""                 # one line: what you can build or sell (skills, product forms), e.g. "bots, scrapers, sites"
+language = "en"
+country = ""               # ISO code of the market under study
+default_phone_cc = ""
+
+# --- Demand: what businesses already pay for. `leadgen sources` lists them (KIND = demand). ---------------
+# [[sources]]
+# type = "kwork"           # RU freelance orders: budget, category, offers
+# max_pages = 50
+
+# [[sources]]
+# type = "flru"            # RU
+# max_pages = 60
+
+# [[sources]]
+# type = "pchel"           # RU/CIS, RUB and USD budgets
+# max_pages = 40
+
+# [[sources]]
+# type = "workspace_ru"    # RU tenders from businesses (budget, required service, customer city)
+# newest = 500
+
+# [[sources]]
+# type = "telegram"        # public order channels, any market (t.me/s preview)
+# channels = []
+# pages = 30
+
+# Demand sources refresh once a day: collect on several days and the orders accumulate (latest snapshot wins).
+
+# --- Supply: a sample of businesses per segment (who could buy). -------------------------------------------
+# Keep samples small: one big city, one mid-size, one small; ~50 per segment per city is enough for shares.
+# [[sources]]
+# type = "osm"
+# queries = ["dentist", "hair salon"]
+# locations = ["Lisbon, Portugal"]
+# limit = 50
+
+# [[sources]]
+# type = "yandex_maps"     # RU/CIS; or twogis (leadgen setup 2gis) for the best contact coverage
+# queries = ["стоматология"]
+# locations = ["kazan"]
+# pages = 2
+
+[enrich]
+site = true                # own-site health feeds the gap metric (site_issues below)
+dns = false
+jobs = false
+registry = []
+
+# --- Market tables (leadgen market <slug> scan) ------------------------------------------------------------
+[market]
+currency = ""              # budgets in this currency; "" = the most common one in the orders
+max_age_days = 365         # leave out orders created longer ago than this (when the date is known); 0 = keep all
+exclude_types = []         # e.g. ["vacancy"] to leave out job posts; vacancy salaries never count as budgets
+default_products = true    # built-in product types (telegram_bot, parser_scraper, crm_integration, landing_site...)
+site_issues = ["unreachable", "broken_ssl", "form_without_privacy_link"]   # what counts as a broken own site
+
+# Extra product types, tried before the built-in ones (first match wins):
+# [[market.products]]
+# name = "booking"
+# matches = "онлайн[- ]?запис|booking|appointment"
+
+# Clusters: what is bought, by whom. Found by reading orders (`leadgen market <slug> terms`, `orders --match`).
+# [[market.clusters]]
+# name = "form_to_crm"
+# matches = "(tilda|тильд|form|форм)\\w*.{0,40}(amo|bitrix|битрикс|crm)"
+# product = ["crm_integration", "landing_site"]   # optional: only orders labeled with these products
+# note = "site form → CRM glue"
+
+# Segments to score: demand regex over order text × supply from leads.jsonl.
+# [[market.segments]]
+# name = "dentist"                  # matches leads whose segment equals this, unless supply is given
+# demand = "dent|стоматолог"
+# supply = "dent|стоматолог"        # optional regex over a lead's segment + categories
+# control = false                   # true: shown for comparison, never ranked
+
+[market.score]
+demand = 0.4               # weights; score = Σ weight · value / max over the ranked segments
+gap = 0.3
+reach = 0.3
+competition = 0.0          # > 0 subtracts weight · median offers per order / max
+gap_metric = "gap_pct"     # any numeric supply metric: no_own_site_pct, social_only_pct, site_issue_pct, ...
+reach_metric = "messenger_pct"   # or phone_pct, email_pct
+
+[http]
+delay = 1.0
+cache = true

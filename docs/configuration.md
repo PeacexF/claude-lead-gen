@@ -88,6 +88,55 @@ C = 20
 | `unsubscribe_text` | `""` | Opt-out line in the footer, e.g. "Not relevant? Reply 'no' and I won't write again." |
 | `ru_consent` | `false` | `ru` profile only: set to `true` only if every recipient gave prior consent (38-ФЗ ст.18). |
 
+## `[market]` (niche studies)
+
+Read by `leadgen market <slug> scan | orders | terms`. `leadgen init <slug> --niches` writes a commented
+example ([`templates/niches.toml`](../templates/niches.toml)). The `niche-research` skill fills it in with you.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `currency` | `""` | Currency of budget stats. `""` = the most common one among orders with a budget. |
+| `rates` | `{}` | Conversion into `currency`: `rates = {USD = 81}` means 1 USD = 81. Budgets in a currency without a rate are left out of the stats, and the scan says how many. |
+| `max_age_days` | `365` | Leave out orders created longer ago, when the date is known. `0` keeps all. |
+| `exclude_types` | `[]` | Order types to leave out entirely, e.g. `["vacancy", "post"]`. Vacancy salaries never count as budgets either way. |
+| `default_products` | `true` | Use the built-in product types (`telegram_bot`, `parser_scraper`, `crm_integration`, `ai_automation`, `mobile_app`, `marketplace_ecom`, `site_fix`, `web_app`, `landing_site`, `script_tool`, `game`, `design`, `video_audio`, `seo_ads`, `smm_content`, `leadgen_sales`; RU and EN keywords). |
+| `site_issues` | `["unreachable", "broken_ssl", "form_without_privacy_link"]` | What counts as a broken own site in the supply metrics: `unreachable`, or any signal type from the `site` step. |
+
+```toml
+[[market.products]]          # extra product types, tried before the built-in ones (first match wins)
+name = "booking"
+matches = "онлайн[- ]?запис|booking|appointment"
+
+[[market.clusters]]          # what is bought × by whom; counted, with every matching URL in clusters.json
+name = "form_to_crm"
+matches = "(tilda|form)\\w*.{0,40}(amo|bitrix|crm)"
+product = ["crm_integration"]   # optional: only orders of these product types
+note = "site form → CRM glue"
+
+[[market.segments]]          # scored: demand regex × supply from leads.jsonl
+name = "dentist"             # supply = leads whose segment equals this...
+demand = "dent|стоматолог"
+supply = "dent|стоматолог"   # ...or leads whose segment + categories match this regex
+product = ["crm_integration"]   # optional
+control = false              # true: shown, never ranked
+
+[market.score]
+demand = 0.4
+gap = 0.3
+reach = 0.3
+competition = 0.0            # > 0 subtracts weight × median offers / max
+gap_metric = "gap_pct"       # no_own_site_pct, social_only_pct, site_issue_pct, messenger_pct, email_pct, ...
+reach_metric = "messenger_pct"
+```
+
+Regexes are case-insensitive and run over an order's title + description + category. In TOML basic strings,
+write `\\b` for `\b`, or use single quotes.
+
+Supply metrics per lead segment (and per city in `segments.json`): `n`, `own_site_pct`, `no_own_site_pct`,
+`social_only_pct` (no own site, but social profiles), `messenger_pct` (Telegram, WhatsApp or MAX), `phone_pct`,
+`email_pct`, `sites_crawled`, `site_issue_pct` (of crawled own sites), `gap_pct` (no own site, plus a site issue
+among the rest), `median_rating`, `median_reviews`, `top_tech`.
+
 ## `[http]`
 
 | Key | Default | Meaning |

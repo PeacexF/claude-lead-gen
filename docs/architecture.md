@@ -25,6 +25,18 @@ send              leadgen send (off | confirm | auto) ──► outreach/sent.js
 
 `leadgen run` chains the first five steps.
 
+A niche study (`leadgen init <slug> --niches`) is a campaign whose sources are mostly `demand` adapters:
+
+```
+leadgen collect         demand sources ──► raw/<source>/<date>/          orders accumulate across daily snapshots
+leadgen run             businesses sample ──► leads.jsonl (+ site crawl)  supply per segment
+leadgen market scan     market.py ──► market/{orders.jsonl, products, clusters, segments, scores}.json
+leadgen market orders | terms                                            read the orders behind a number
+        │
+        ▼
+market-scanner agents (hypothesis checks) ──► reports/scans/  ·  niche cards ──► reports/niches/ ──► fact-checker
+```
+
 ## Workspace layout
 
 The workspace is the current directory, or `$LEADGEN_HOME`. It's the user's folder, not the plugin's.
@@ -41,7 +53,8 @@ campaigns/<slug>/
 │   ├── drafts.jsonl      one row per lead × step × channel
 │   ├── batches/          confirm-mode previews (content-hashed, expire after 24 h)
 │   └── sent.jsonl        send log; one send per draft, ever
-├── reports/
+├── reports/              niche studies: niches/NN-<slug>.md cards, scans/<hypothesis>.md
+├── market/               niche studies: leadgen market scan output
 └── .lock                 held while a command writes the campaign
 suppression.txt           global do-not-contact list, shared by every campaign
 .leadgen-cache/           HTTP response cache
@@ -105,6 +118,10 @@ commands, which the main session reviews and runs.
 - **Sources** (`leadgen/sources/`): one module per adapter with a small contract (`units`, `collect_unit`,
   `parse`). See [sources.md](sources.md). `KIND = "demand"` sources (freelance orders, tenders) are for niche
   research and don't merge into leads.
+- **Market** (`leadgen/market.py`): niche research tables, pure functions of the raw demand rows, `leads.jsonl` and
+  `[market]`. Orders are deduped across snapshots and labeled with a product type by keyword rules (first match
+  wins, user rules first). Budgets are converted to one currency with the configured rates. Supply shares per lead
+  segment, and segment scores as weighted, max-normalized demand × gap × reach with the formula printed.
 - **Enrichment** (`leadgen/enrich/`): a thread pool over leads, with steps in order: site crawl → DNS/MX → job
   boards → registries. DNS checks the emails the crawl found, and job boards use the links it found. Each step
   adds signals (`no_website`, `outdated_site`, `no_https`, `form_without_privacy_link`, `no_mx`, `hiring`, ...).
@@ -118,9 +135,9 @@ commands, which the main session reviews and runs.
 
 | Component | Where | Role |
 |---|---|---|
-| Skills | `skills/<name>/SKILL.md` | Method: how to build an ICP, pick sources, write rules, research, find contacts, write outreach, check compliance, build a parser. `lead-gen` orchestrates. |
-| Agents | `agents/<name>.md` | Parallel workers with restricted tools: `company-researcher` (one dossier), `lead-qualifier` (batch verdicts), `outreach-writer` (batch drafts to a file), `fact-checker` (per-claim verdicts, read only). Loaded as `leadgen:<name>`. |
-| Commands | `commands/<name>.md` | `/leadgen:new`, `run`, `research`, `drafts`, `send`, `status`, `setup`. Thin entry points into the skills. Only the user can start `/leadgen:send`. |
+| Skills | `skills/<name>/SKILL.md` | Method: how to build an ICP, pick sources, write rules, research, find contacts, write outreach, check compliance, build a parser, research niches. `lead-gen` orchestrates campaigns, `niche-research` studies. |
+| Agents | `agents/<name>.md` | Parallel workers with restricted tools: `company-researcher` (one dossier), `lead-qualifier` (batch verdicts), `outreach-writer` (batch drafts to a file), `fact-checker` (per-claim verdicts, read only), `market-scanner` (niche hypothesis checks). Loaded as `leadgen:<name>`. |
+| Commands | `commands/<name>.md` | `/leadgen:new`, `run`, `research`, `drafts`, `send`, `status`, `setup`, `niches`. Thin entry points into the skills. Only the user can start `/leadgen:send`. |
 | Hooks | `hooks/hooks.json` → `hooks/guard.py` | PreToolUse on Bash and Edit/Write: send gate and PII guard. See [compliance.md](compliance.md#the-send-gate-and-its-limits). |
 | MCP | `.mcp.json` | Playwright (headless, isolated) for JS-heavy pages and screenshots. Keyed search and scraping providers are separate plugins in `providers/`. |
 | CLI | `bin/leadgen` | Bash wrapper. Resolves symlinks, needs Python ≥ 3.11, and runs `python -P` so files in the workspace can't shadow the package. |

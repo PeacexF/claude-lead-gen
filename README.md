@@ -3,7 +3,8 @@
 A Claude Code plugin that turns Claude into a lead-generation and business-research agent. Tell it what you sell
 and where. It builds the ideal customer profile, collects businesses from public sources, crawls their sites,
 checks their email setup, scores them with rules you can read, researches the best ones, and writes outreach
-drafts. Every claim in a draft is tied to a URL or a collected record.
+drafts. Every claim in a draft is tied to a URL or a collected record. Don't know what to sell yet? A niche study
+measures what businesses already pay for and where the gaps are, and proposes niches with the evidence.
 
 - **Any market.** Sources are pluggable adapters: OpenStreetMap, Google Places, UK Companies House, Hacker News
   hiring threads, your own CSV, plus RU/CIS directories (2GIS, Yandex Maps) and freelance boards.
@@ -59,6 +60,17 @@ table (criterion → field it checks → scoring rule) and stops. After you say 
 
 Or just ask: "find me 50 accounting firms in Manchester that are hiring". The `lead-gen` skill runs the same flow.
 
+Not sure what to sell yet? Start a niche study:
+
+```
+/leadgen:niches Telegram bots and scrapers, Russia
+```
+
+It collects what businesses pay freelancers for right now, groups the orders by product and buyer, samples the
+buyer segments for digital gaps, scores them with a printed formula, and presents one niche card at a time:
+evidence, product, price points, how to reach buyers, competitors, and an implementation spec. When you pick one,
+`/leadgen:new` turns it into a lead campaign.
+
 The result is `campaigns/<slug>/leads.csv` (flat export) and `leads.jsonl` (canonical records), dossiers in
 `dossiers/`, and drafts in `outreach/drafts.jsonl`.
 
@@ -67,15 +79,15 @@ The result is `campaigns/<slug>/leads.csv` (flat export) and `leads.jsonl` (cano
 | Part | What it does |
 |---|---|
 | `leadgen` CLI | Fetching (throttled, cached), merging, site crawl, DNS/MX, job boards, registries, scoring, export, drafts store, gated SMTP sender. Every step is idempotent and resumable. `--json` on every command. |
-| Skills | `lead-gen` (orchestrator), `icp-builder`, `lead-sourcing`, `lead-scoring`, `company-research`, `contact-discovery`, `outreach`, `compliance`, `parser-builder` (build an adapter for a new source). |
-| Agents | `company-researcher`, `lead-qualifier`, `outreach-writer`, `fact-checker`, run in parallel on batches. |
-| Commands | `/leadgen:new`, `run`, `research`, `drafts`, `send`, `status`, `setup`. |
+| Skills | `lead-gen` (orchestrator), `icp-builder`, `lead-sourcing`, `lead-scoring`, `company-research`, `contact-discovery`, `outreach`, `compliance`, `parser-builder` (build an adapter for a new source), `niche-research` (find niches to sell into). |
+| Agents | `company-researcher`, `lead-qualifier`, `outreach-writer`, `fact-checker`, `market-scanner`, run in parallel on batches. |
+| Commands | `/leadgen:new`, `run`, `research`, `drafts`, `send`, `status`, `setup`, `niches`. |
 | Hooks | Send gate (asks before an approved batch goes out) and PII guard (keeps campaign data out of git). |
 
 ## CLI
 
 ```
-leadgen init <slug> --offer "..."      new campaign from templates
+leadgen init <slug> --offer "..."      new campaign from templates (--niches: a niche study)
 leadgen sources                        adapters, coverage, readiness
 leadgen run <slug>                     collect → merge → enrich → score → export
 leadgen collect | merge | enrich | score | export <slug>
@@ -86,6 +98,8 @@ leadgen mark <slug> <id> <status>      new|drafted|sent|replied|won|lost|suppres
 leadgen drafts <slug> add|list|show
 leadgen send <slug> [--dry-run | --approve <batch>]
 leadgen suppress <email|domain|phone>  global do-not-contact list
+leadgen market <slug> scan             niche study tables: product types, clusters, supply, scores
+leadgen market <slug> orders | terms   the orders behind a number; common words (--product --cluster --match)
 leadgen doctor | setup 2gis
 ```
 

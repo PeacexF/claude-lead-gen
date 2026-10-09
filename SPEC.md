@@ -118,7 +118,7 @@ score, score_breakdown{rule: points}, tier (A/B/C/D), notes, status (new|drafted
 | `leadgen send <slug> [--dry-run] [--approve <batch>]` | gated sending (see §7) |
 | `leadgen suppress <value…>` | add to the suppression list |
 | `leadgen doctor` | check Python, network, optional tools, keys, MCP setup |
-| `leadgen market …` | demand scans (freelance orders, job posts) for niche research |
+| `leadgen market <slug> scan\|orders\|terms` | niche research tables over demand sources (product types, clusters, supply per segment, scores), and the orders behind each number |
 
 Every command is idempotent and resumable. Output is human-readable on stderr; `--json` prints
 machine-readable results for Claude.
@@ -136,7 +136,7 @@ machine-readable results for Claude.
 | `contact-discovery` | Find decision makers and contact routes: team pages, public profiles, email patterns + MX check. Compliance-aware. |
 | `lead-scoring` | Write and tune scoring rules and tiers; explain why each lead is ranked where it is. |
 | `outreach` | Personalized drafts that use evidence hooks, sequences, channel choice, and send modes. |
-| `niche-research` | *Deferred (owner, 2026-10-08): a separate future skill.* Ported from claude-kit, generalized: demand × gap × reach scans, niche cards with evidence. |
+| `niche-research` | Ported from claude-kit, generalized: demand scan (what businesses pay for) → supply scan (who could buy, their gaps) → demand × gap × reach scores → hypothesis rounds → niche cards with evidence, one at a time, until the user picks one; then hand-off to a lead campaign. Studies are campaigns made with `leadgen init --niches`. |
 | `compliance` | GDPR/PECR, CAN-SPAM, CASL, 152-ФЗ/38-ФЗ, source ToS; per-geo checklist that runs before outreach. |
 | `parser-builder` | Guidebook for building a parser (source adapter) for one specific source: qualify it (ToS, login, captcha), find the data path, units and pagination, synthetic fixtures, offline tests, small live check, registration. Workspace adapters (`<workspace>/leadgen_sources/<name>.py`, loaded only when a campaign names them) for one-off sources; `LayoutChanged` makes a broken parser fail loudly. [Design](docs/plans/parser-builder-skill.md). |
 
@@ -145,7 +145,7 @@ machine-readable results for Claude.
 - `company-researcher`: builds one dossier; spawned in parallel for top-tier leads.
 - `lead-qualifier`: checks a batch of leads against the ICP with fresh web checks and flags false positives.
 - `outreach-writer`: writes drafts for a batch, one evidence hook per lead, no invented facts.
-- `market-scanner`: runs a niche/demand scan and returns the numbers.
+- `market-scanner`: checks 1–3 niche hypotheses against a study's demand data and the web (matched vs real orders, budgets, offers, supply, existing products) and returns the numbers with a keep/drop call.
 - `fact-checker`: verifies every claim in a dossier, draft, or niche card against its cited source.
 
 ### 5.3 Slash commands (`commands/`)

@@ -19,7 +19,7 @@ description: Chooses and configures lead sources by geography and business type 
 | Freelancers / suppliers (RU) | `kwork_gigs` | | Partners and competitors rather than buyers. |
 
 Demand sources (`kwork`, `flru`, `pchel`, `workspace_ru`, `telegram`) collect orders, not leads. They belong
-to niche research and don't merge into `leads.jsonl`.
+to niche research (the `niche-research` skill, `leadgen market`) and don't merge into `leads.jsonl`.
 
 ## Write `[[sources]]`
 

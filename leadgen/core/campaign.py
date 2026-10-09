@@ -34,7 +34,14 @@ DEFAULTS: dict = {
                  "compliance": "", "sender_name": "", "sender_company": "", "sender_address": "",
                  "unsubscribe_text": "", "min_tier": "B", "followup_days": 4, "send_delay": 10, "ru_consent": False},
     "http": {"delay": 1.0, "cache": True},
+    "market": {"currency": "", "rates": {}, "max_age_days": 365, "exclude_types": [], "default_products": True, "products": [],
+               "clusters": [], "segments": [], "site_issues": ["unreachable", "broken_ssl", "form_without_privacy_link"],
+               "score": {"demand": 0.4, "gap": 0.3, "reach": 0.3, "competition": 0.0, "gap_metric": "gap_pct",
+                         "reach_metric": "messenger_pct"}},
 }
+
+# leadgen init <slug> [--niches]: campaign.toml and brief.md templates per kind
+KINDS = {"leads": ("campaign.toml", "brief.md"), "niches": ("niches.toml", "niches-brief.md")}
 
 
 def workspace() -> pathlib.Path:
@@ -102,8 +109,10 @@ class Campaign:
 
     # --- creation --------------------------------------------------------
     @classmethod
-    def create(cls, slug: str, root: pathlib.Path | None = None, name: str = "", offer: str = "") -> "Campaign":
+    def create(cls, slug: str, root: pathlib.Path | None = None, name: str = "", offer: str = "",
+               kind: str = "leads") -> "Campaign":
         root = root or workspace()
+        cfg_tpl, brief_tpl = KINDS[kind]
         slug = slugify(slug)
         d = root / "campaigns" / slug
         if d.exists():
@@ -111,12 +120,12 @@ class Campaign:
         (d / "raw").mkdir(parents=True)
         for sub in ("dossiers", "outreach", "reports"):
             (d / sub).mkdir()
-        cfg = (TEMPLATES / "campaign.toml").read_text()
+        cfg = (TEMPLATES / cfg_tpl).read_text()
         # json.dumps gives a valid TOML basic string (quotes, backslashes, control chars escaped)
         cfg = cfg.replace('name = ""', f"name = {json.dumps(name or slug, ensure_ascii=False)}", 1)
         cfg = cfg.replace('offer = ""', f"offer = {json.dumps(offer, ensure_ascii=False)}", 1)
         (d / "campaign.toml").write_text(cfg)
-        shutil.copy(TEMPLATES / "brief.md", d / "brief.md")
+        shutil.copy(TEMPLATES / brief_tpl, d / "brief.md")
         gi = root / ".gitignore"
         lines = gi.read_text().splitlines() if gi.exists() else []
         need = [p for p in ("campaigns/", "suppression.txt", ".leadgen-cache/", "leadgen_sources/*_fixtures/") if p not in lines]

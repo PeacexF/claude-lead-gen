@@ -17,7 +17,7 @@ import socket
 import subprocess
 import sys
 
-from . import enrich, score, sources
+from . import enrich, market, score, sources
 from .core import merge as merging
 from .core.campaign import Campaign, list_campaigns, workspace, lock as campaign_lock
 from .core.store import read_jsonl, write_csv, write_jsonl
@@ -64,8 +64,12 @@ def tier_key(lead: dict):
 
 # --- campaign lifecycle --------------------------------------------------------------------------------------------
 def cmd_init(args):
-    camp = Campaign.create(args.slug, name=args.name or "", offer=args.offer or "")
-    res = {"campaign": camp.slug, "dir": str(camp.dir)}
+    kind = "niches" if args.niches else "leads"
+    camp = Campaign.create(args.slug, name=args.name or "", offer=args.offer or "", kind=kind)
+    res = {"campaign": camp.slug, "dir": str(camp.dir), "kind": kind}
+    if args.niches:
+        return res, (f"created niche study {camp.dir}\nnext: fill brief.md (seller profile) and the [[sources]] and "
+                     f"[market] sections of campaign.toml, then: leadgen collect {camp.slug} && leadgen market {camp.slug} scan")
     return res, (f"created {camp.dir}\nnext: fill brief.md and campaign.toml (sources, scoring, outreach), "
                  f"then: leadgen run {camp.slug}")
 
@@ -312,6 +316,91 @@ def cmd_mark(args):
         f"; added to suppression.txt: {', '.join(res['suppressed'])}" if res["suppressed"] else "")
 
 
+# --- market (niche research) ---------------------------------------------------------------------------------------
+def money(v) -> str:
+    return "-" if v is None else f"{v:,.0f}".replace(",", " ")
+
+
+def fmt_table(rows: list[list], head: list[str]) -> str:
+    cells = [head] + [[str(c) for c in r] for r in rows]
+    w = [max(len(r[i]) for r in cells) for i in range(len(head))]
+    return "\n".join("  ".join(c.ljust(w[i]) if i == 0 else c.rjust(w[i]) for i, c in enumerate(r)) for r in cells)
+
+
+def fmt_scan(r: dict) -> str:
+    cur = r["currency"] or "?"
+    src = ", ".join(f"{k} {v}" for k, v in sorted(r["by_source"].items(), key=lambda kv: -kv[1]))
+    snaps = f"{r['snapshots'][0]}..{r['snapshots'][-1]}" if r["snapshots"] else "none"
+    if not r["orders"] and not r["dropped"]["older"] and not r["dropped"]["excluded_type"]:
+        return (f"no demand data in {pathlib.Path(r['dir']).parent / 'raw'}: add demand [[sources]] (leadgen sources, "
+                f"KIND demand) to campaign.toml and run leadgen collect")
+    rates = ", ".join(f"1 {k} = {v} {cur}" for k, v in r["rates"].items())
+    norate = ", ".join(f"{k} {v}" for k, v in r["dropped"]["no_rate"].items())
+    out = [f"orders: {r['orders']} ({src or 'no demand data'}), snapshots {snaps}",
+           f"budgets in {cur}" + (f" (converted: {rates})" if rates else "")
+           + (f"; left out of budget stats, no [market] rates: {norate}" if norate else ""),
+           f"orders left out: {r['dropped']['older']} older than [market] max_age_days, "
+           f"{r['dropped']['excluded_type']} of [market] exclude_types", "",
+           "product types (first matching rule; leadgen market <slug> orders --product X to read them):",
+           fmt_table([[k, v["orders"], v["share_pct"], v["with_budget"], money(v["median_budget"]), money(v["p75_budget"]),
+                       money(v["median_offers"])] for k, v in r["products"].items()],
+                     ["product", "orders", "%", "w/budget", f"median {cur}", f"p75 {cur}", "med offers"])]
+    if r["clusters"]:
+        out += ["", "clusters ([[market.clusters]]):",
+                fmt_table([[k, v["orders"], v["share_pct"], v["with_budget"], money(v["median_budget"]),
+                            money(v["median_offers"])] for k, v in r["clusters"].items()],
+                          ["cluster", "orders", "%", "w/budget", f"median {cur}", "med offers"])]
+    if r["segments"]:
+        out += ["", f"supply ({r['leads']} leads by segment; % of leads, site issues % of crawled sites):",
+                fmt_table([[k, v["n"], v["no_own_site_pct"], v["social_only_pct"], v["messenger_pct"], v["email_pct"],
+                            "-" if v["site_issue_pct"] is None else v["site_issue_pct"], v["gap_pct"],
+                            v["median_rating"] or "-", v["median_reviews"] if v["median_reviews"] is not None else "-"]
+                           for k, v in r["segments"].items()],
+                          ["segment", "n", "no site", "social only", "TG/WA/MAX", "email", "site iss", "gap", "rating", "reviews"])]
+    if r["scores"]:
+        sc = r["scores"]
+        out += ["", sc["formula"],
+                fmt_table([[t["segment"] + (" (control)" if t["control"] else ""), t["score"], t["demand_orders"],
+                            money(t["median_budget"]), money(t["median_offers"]), t["businesses"],
+                            "-" if t["gap"] is None else t["gap"], "-" if t["reach"] is None else t["reach"]]
+                           for t in sc["segments"]],
+                          ["segment", "score", "orders", f"median {cur}", "med offers", "businesses", "gap", "reach"])]
+    else:
+        out += ["", "no [[market.segments]] in campaign.toml, so nothing is scored (niche-research skill, step 4)"]
+    return "\n".join(out + ["", f"-> {r['dir']}/"])
+
+
+def cmd_market(args):
+    camp = camp_of(args)
+    try:
+        if args.action == "scan":
+            r = market.scan(camp, log=log)
+            return r, fmt_scan(r)
+        orders, _, cur = market.prepare(camp, log=log)
+        picked = market.select(orders, camp.config["market"], product=csv_list(args.product), cluster=args.cluster,
+                               pattern=args.match, source=csv_list(args.source), min_budget=args.min_budget)
+    except market.MarketError as e:
+        raise CLIError(str(e)) from e
+    if args.action == "terms":
+        r = market.terms(picked, args.n)
+        return r, "\n".join([f"{r['orders']} orders", "", "words (orders containing):",
+                             *[f"  {n:>5}  {w}" for w, n in r["words"]], "", "pairs:",
+                             *[f"  {n:>5}  {w}" for w, n in r["pairs"]]])
+    key = {"budget": lambda o: (-(o["amount"] or 0), -(o["value"] or 0)), "offers": lambda o: o["offers"] if o["offers"] is not None else 1e9,
+           "date": lambda o: o["date"] or o["first_seen"]}[args.sort]
+    picked = sorted(picked, key=key, reverse=args.sort == "date")
+    shown = picked[: args.n] if args.n else picked
+    rows = [{k: o[k] for k in ("id", "source", "url", "title", "value", "currency", "amount", "offers", "product", "category",
+                               "type", "date", "first_seen")} | ({"description": o["description"]} if args.full else {})
+            for o in shown]
+    text = [f"{len(picked)} orders" + (f", showing {len(shown)}" if len(shown) < len(picked) else "")]
+    for o in rows:
+        text.append(f"{money(o['value']):>9} {o['currency'] or '':<3} {('-' if o['offers'] is None else o['offers']):>4} offers  "
+                    f"[{o['product']}] {o['title'][:100]}\n{'':>24}{o['url'] or o['id']}"
+                    + (f"\n{'':>24}{o['description'][:600]}" if args.full and o.get("description") else ""))
+    return {"total": len(picked), "currency": cur, "orders": rows}, "\n".join(text)
+
+
 # --- outreach ------------------------------------------------------------------------------------------------------
 def read_drafts_input(path: str | None) -> list[dict]:
     raw = sys.stdin.read() if path in (None, "-") else pathlib.Path(path).read_text(encoding="utf-8")
@@ -486,6 +575,7 @@ def build_parser() -> argparse.ArgumentParser:
         return sp
 
     sp = cmd("init", cmd_init, "create a campaign from templates")
+    sp.add_argument("--niches", action="store_true", help="a niche study (demand sources + [market]) instead of a lead campaign")
     sp.add_argument("--name")
     sp.add_argument("--offer", help="one line: what you sell and the outcome")
     cmd("sources", cmd_sources, "list source adapters and whether they're ready", slug=False)
@@ -519,6 +609,23 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("lead", help="lead id")
     sp.add_argument("status", choices=LEAD_STATUSES)
     sp.add_argument("--note", help="appended to the lead's notes")
+
+    sp = cmd("market", cmd_market, "niche research over demand sources: product types, clusters, supply, scores")
+    msub = sp.add_subparsers(dest="action", required=True, metavar="action")
+    msub.add_parser("scan", parents=[common], allow_abbrev=False,
+                    help="all tables (products, clusters, supply by segment, scores) -> campaigns/<slug>/market/")
+    for name, help in (("orders", "list the orders behind a number (evidence for a niche card)"),
+                       ("terms", "most common words and word pairs in the selected orders (cluster ideas)")):
+        mp = msub.add_parser(name, parents=[common], allow_abbrev=False, help=help)
+        mp.add_argument("--product", help="only these product types (comma-separated)")
+        mp.add_argument("--cluster", help="only orders of this [[market.clusters]] name")
+        mp.add_argument("--match", help="regex over title + description + category (case-insensitive)")
+        mp.add_argument("--source", help="only these sources (comma-separated)")
+        mp.add_argument("--min-budget", type=float, help="budget at least this, in the main currency (after [market] rates)")
+        mp.add_argument("--n", type=int, default=20 if name == "orders" else 40, help="how many to show (0 = all orders)")
+        if name == "orders":
+            mp.add_argument("--sort", choices=["budget", "offers", "date"], default="budget")
+            mp.add_argument("--full", action="store_true", help="include descriptions")
 
     sp = cmd("drafts", cmd_drafts, "store and inspect outreach drafts")
     dsub = sp.add_subparsers(dest="action", required=True, metavar="action")

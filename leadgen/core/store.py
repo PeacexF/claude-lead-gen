@@ -32,6 +32,16 @@ def write_jsonl(path: pathlib.Path, rows: Iterable[dict]) -> int:
     return n
 
 
+def write_json(path: pathlib.Path, obj) -> None:
+    """Atomic, like write_jsonl."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, ensure_ascii=False, indent=1)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
 def append_jsonl(path: pathlib.Path, rows: Iterable[dict]) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     n = 0

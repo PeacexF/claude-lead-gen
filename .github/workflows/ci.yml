@@ -34,6 +34,8 @@ jobs:
           ws="$(mktemp -d)"
           LEADGEN_HOME="$ws" bin/leadgen init smoke --offer "CI smoke"
           LEADGEN_HOME="$ws" bin/leadgen --json status smoke > /dev/null
+          LEADGEN_HOME="$ws" bin/leadgen init study --niches --offer "CI smoke"
+          LEADGEN_HOME="$ws" bin/leadgen --json market study scan > /dev/null
 
   plugin:
     name: plugin manifests
