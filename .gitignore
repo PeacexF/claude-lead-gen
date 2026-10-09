@@ -45,3 +45,6 @@ suppression.txt
 .venv/
 tools/parser-2gis/
 .mcpb-cache/
+
+# local research runs and notes (may name real people and businesses)
+private/

@@ -84,6 +84,12 @@ leadgen market <slug> scan             # tables -> campaigns/<slug>/market/
   types.
 - Per cluster, record real buyer orders, the median budget of those, median offers, and whether the buyers are
   businesses in an identifiable industry. Write findings to the brief's log as you go.
+- **Reposts inflate counts.** One poster can put the same order up a dozen times under different titles and
+  cities. The tables show `distinct` (orders with different text) next to `orders`, and `buyers*` where the
+  source shows who posted (Kwork). Scores use distinct orders. Quote distinct orders and buyers in cards, not raw
+  matches.
+- **Offers are not comparable across sources.** FL.ru and pchel show fewer offers than Kwork, and fresh posts
+  have fewer than old ones. Compare competition within one source.
 
 Orders accumulate across days (`first_seen` / `last_seen` per order), so a study that collects for a week
 measures demand better than one snapshot.
@@ -121,7 +127,7 @@ demand = "стоматолог|клиник"    # regex over order text
 # control = true
 ```
 
-`score = demand·orders/max + gap·gap_metric/max + reach·reach_metric/max − competition·median_offers/max`, with
+`score = demand·distinct orders/max + gap·gap_metric/max + reach·reach_metric/max − competition·median_offers/max`, with
 the weights in `[market.score]`. Set `gap_metric` to the gap the product removes: `no_own_site_pct` for sites,
 `site_issue_pct` for fixes, `social_only_pct` for presence. Show the user the formula and the table, and say
 when a segment's sample is small (n < 30 shares are rough). Shortlist 3–5.

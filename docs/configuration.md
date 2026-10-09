@@ -137,6 +137,10 @@ Supply metrics per lead segment (and per city in `segments.json`): `n`, `own_sit
 `email_pct`, `sites_crawled`, `site_issue_pct` (of crawled own sites), `gap_pct` (no own site, plus a site issue
 among the rest), `median_rating`, `median_reviews`, `top_tech`.
 
+Order stats (products, clusters, segments): `orders`, `distinct` (different text: reposts count once), `buyers`
+(distinct posters, where the source shows them: Kwork), `with_budget`, `median_budget`, `p25_budget`,
+`p75_budget`, `median_offers`. Segment scores use `distinct`.
+
 ## `[http]`
 
 | Key | Default | Meaning |

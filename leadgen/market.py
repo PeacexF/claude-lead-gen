@@ -13,7 +13,8 @@ No network, no model: the same raw data and config give the same tables. The nic
 orders behind a number before it goes into a niche card.
 
 A demand row (from any KIND = "demand" adapter, built in or workspace) uses these keys, all optional:
-    source_id, url, title, description, budget, budget_max, currency, category, offers, created, type, channel
+    source_id, url, title, description, budget, budget_max, currency, category, offers, created, type, channel,
+    buyer (the poster's id on the source, when shown: distinct buyers are counted per product, cluster and segment)
 """
 from __future__ import annotations
 
@@ -31,6 +32,10 @@ from .core.store import read_jsonl, write_json, write_jsonl
 # First match wins, on lowercase title + description + category. [[market.products]] rules are tried first.
 # RU patterns from claude-kit, plus English equivalents.
 DEFAULT_PRODUCTS: list[tuple[str, str]] = [
+    # intent before product: "find clients for my bot studio" is lead generation, not a bot order
+    ("leadgen_sales", r"(поиск|найти|находить|привлеч|привести|приводить)\w* (\w+ )?(клиент|заказчик|лид|покупател)|"
+                      r"лидогенер|(выплат|оплат|вознагражд)\w* за (\w+ )?(клиент|лид|заказчик)|"
+                      r"\b(find|bring)( me)? (new )?(clients|customers)|lead generation"),
     ("telegram_bot", r"телеграм[- ]?бот|telegram[- ]?бот|бот[а-я]* (в|для) (телеграм|telegram|tg)|\bтг[- ]?бот|чат[- ]?бот|"
                      r"\bбот\b|\bбота\b|mini ?app|мини[- ]?апп|telegram bot|chat ?bot|discord bot|whatsapp bot|\bbots?\b"),
     ("parser_scraper", r"парс(ер|инг|ить)|скрап|scrap|сбор (данных|базы|контакт)|выгрузк|crawler|data extraction|\bparser\b|"
@@ -134,7 +139,7 @@ def normalize(r: dict, source: str, day: str) -> dict:
         "offers": int(offers) if isinstance(offers, (int, float)) or str(offers or "").isdigit() else None,
         "type": r.get("type") or "order", "created": r.get("created"),
         "date": (d.isoformat() if (d := order_date(r.get("created"))) else None),
-        "first_seen": day, "last_seen": day,
+        "buyer": r.get("buyer"), "first_seen": day, "last_seen": day,
     }
 
 
@@ -221,11 +226,18 @@ def _q(vals: list[float], q: float) -> float:
     return vals[min(len(vals) - 1, int(len(vals) * q))]
 
 
+def text_key(o: dict) -> str:
+    """Reposts of one order (same description under different titles or cities) share this key."""
+    return re.sub(r"\W+", "", (o.get("description") or o.get("title") or "").lower())[:200] or o["id"]
+
+
 def stats(orders: list[dict]) -> dict:
     """Budget quantiles in the main currency (see convert; vacancy salaries never count) and median offers."""
     vals = sorted(o["amount"] for o in orders if o.get("amount") and o["type"] != "vacancy")
     offers = [o["offers"] for o in orders if o["offers"] is not None]
-    return {"orders": len(orders), "with_budget": len(vals),
+    buyers = {o["buyer"] for o in orders if o.get("buyer")}
+    return {"orders": len(orders), "distinct": len({text_key(o) for o in orders}),
+            "buyers": len(buyers) if buyers else None, "with_budget": len(vals),
             "median_budget": statistics.median(vals) if vals else None,
             "p25_budget": _q(vals, .25) if vals else None, "p75_budget": _q(vals, .75) if vals else None,
             "median_offers": statistics.median(offers) if offers else None}
@@ -339,7 +351,8 @@ def score(orders: list[dict], leads: list[dict], cfg: dict) -> dict:
         st = stats(hits)
         table.append({
             "segment": s["name"], "control": bool(s.get("control")), "note": s.get("note"),
-            "demand_orders": len(hits), "median_budget": st["median_budget"], "with_budget": st["with_budget"],
+            "demand_orders": len(hits), "demand_distinct": st["distinct"], "buyers": st["buyers"],
+            "median_budget": st["median_budget"], "with_budget": st["with_budget"],
             "median_offers": st["median_offers"], "businesses": len(group),
             "gap": m[gap_m] if m else None, "reach": m[reach_m] if m else None,
             "supply": m, "order_urls": [o["url"] for o in hits],
@@ -348,14 +361,14 @@ def score(orders: list[dict], leads: list[dict], cfg: dict) -> dict:
 
     def mx(k):
         return max((t[k] or 0 for t in ranked), default=0) or 1
-    top = {"demand": mx("demand_orders"), "gap": mx("gap"), "reach": mx("reach"), "competition": mx("median_offers")}
+    top = {"demand": mx("demand_distinct"), "gap": mx("gap"), "reach": mx("reach"), "competition": mx("median_offers")}
     for t in table:
-        parts = {"demand": (t["demand_orders"] or 0) / top["demand"], "gap": (t["gap"] or 0) / top["gap"],
+        parts = {"demand": (t["demand_distinct"] or 0) / top["demand"], "gap": (t["gap"] or 0) / top["gap"],
                  "reach": (t["reach"] or 0) / top["reach"], "competition": -(t["median_offers"] or 0) / top["competition"]}
         t["components"] = {k: round(v, 3) for k, v in parts.items()}
         t["score"] = round(sum(weights[k] * v for k, v in parts.items()), 3)
     table.sort(key=lambda t: (t["control"], -t["score"]))
-    formula = (f"score = {weights['demand']}·orders/max + {weights['gap']}·{gap_m}/max + {weights['reach']}·{reach_m}/max"
+    formula = (f"score = {weights['demand']}·distinct orders/max + {weights['gap']}·{gap_m}/max + {weights['reach']}·{reach_m}/max"
                + (f" − {weights['competition']}·median_offers/max" if weights["competition"] else "")
                + "   (max over non-control segments; a segment without supply data gets 0 for gap and reach)")
     return {"formula": formula, "weights": weights, "gap_metric": gap_m, "reach_metric": reach_m, "segments": table}

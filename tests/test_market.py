@@ -27,9 +27,10 @@ KWORK_DAY1 = [
 ]
 KWORK_DAY2 = [  # project 2 again, edited: the latest snapshot wins, first_seen stays
     {"source_id": 2, "url": "https://kwork.ru/projects/2", "title": "Парсер цен конкурентов для стоматологии",
-     "description": "сбор данных", "budget": 15000, "currency": "RUB", "offers": 4, "type": "project"},
+     "description": "сбор данных", "budget": 15000, "currency": "RUB", "offers": 4, "type": "project", "buyer": "clinic1"},
     {"source_id": 3, "url": "https://kwork.ru/projects/3", "title": "Интеграция формы Tilda с amoCRM",
-     "description": "для стоматологической клиники", "budget": 20000, "currency": "RUB", "offers": 8, "type": "project"},
+     "description": "для стоматологической клиники", "budget": 20000, "currency": "RUB", "offers": 8, "type": "project",
+     "buyer": "clinic1"},
     {"source_id": 4, "url": "https://kwork.ru/projects/4", "title": "Need a Shopify store for my shop", "description": "",
      "budget": 300, "currency": "USD", "offers": 2, "type": "project"},
 ]
@@ -185,6 +186,11 @@ class MarketTest(unittest.TestCase):
         self.assertEqual(r["clusters"]["dental"]["orders"], 3)
         self.assertEqual(r["clusters"]["dental_software"]["orders"], 2)  # product filter
         self.assertEqual(r["clusters"]["dental_software"]["median_budget"], 17500)
+        self.assertEqual(r["clusters"]["dental_software"]["buyers"], 1)  # one buyer posted both orders
+        self.assertEqual(r["clusters"]["dental"]["distinct"], 3)
+        repost = [{"id": "a", "title": "Обзвон. Москва", "description": "Звонки по базе."},
+                  {"id": "b", "title": "Обзвон. Сочи", "description": "Звонки по базе"}]
+        self.assertEqual(market.stats([{**o, "type": "project", "offers": None} for o in repost])["distinct"], 1)
 
         dent = r["segments"]["стоматология"]
         self.assertEqual((dent["n"], dent["no_own_site_pct"], dent["social_only_pct"], dent["messenger_pct"]),
@@ -204,7 +210,7 @@ class MarketTest(unittest.TestCase):
         self.assertEqual(rows["салон красоты"]["score"], 0.867)
         self.assertEqual([t["segment"] for t in sc["segments"]][-1], "автосервис")  # control rows last, unranked
         self.assertIsNone(rows["автосервис"]["gap"])
-        self.assertIn("score = 0.4·orders/max", sc["formula"])
+        self.assertIn("score = 0.4·distinct orders/max", sc["formula"])
 
         files = sorted(p.name for p in (camp.dir / "market").iterdir())
         self.assertEqual(files, ["clusters.json", "orders.jsonl", "products.json", "scores.json", "segments.json"])
@@ -243,6 +249,12 @@ class MarketTest(unittest.TestCase):
     def test_bad_metric(self):
         self.study(extra=MARKET + '\n[market.score]\ngap_metric = "top_tech"\n')
         self.assertIn("gap_metric", self.j("market", "s", "scan", code=1)["error"])
+
+    def test_intent_before_product(self):
+        rules = market.product_rules({"default_products": True})
+        o = {"title": "Привлечение новых клиентов для создания ботов", "description": "", "category": None}
+        market.label([o], rules)
+        self.assertEqual(o["product"], "leadgen_sales")
 
     def test_order_dates(self):
         d = market.order_date

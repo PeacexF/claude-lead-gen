@@ -342,14 +342,17 @@ def fmt_scan(r: dict) -> str:
            f"orders left out: {r['dropped']['older']} older than [market] max_age_days, "
            f"{r['dropped']['excluded_type']} of [market] exclude_types", "",
            "product types (first matching rule; leadgen market <slug> orders --product X to read them):",
-           fmt_table([[k, v["orders"], v["share_pct"], v["with_budget"], money(v["median_budget"]), money(v["p75_budget"]),
-                       money(v["median_offers"])] for k, v in r["products"].items()],
-                     ["product", "orders", "%", "w/budget", f"median {cur}", f"p75 {cur}", "med offers"])]
+           fmt_table([[k, v["orders"], v["distinct"], v["share_pct"], v["with_budget"], money(v["median_budget"]),
+                       money(v["p75_budget"]), money(v["median_offers"])] for k, v in r["products"].items()],
+                     ["product", "orders", "distinct", "%", "w/budget", f"median {cur}", f"p75 {cur}", "med offers"]),
+           "distinct = orders with different text (reposts of one order count once)"]
     if r["clusters"]:
         out += ["", "clusters ([[market.clusters]]):",
-                fmt_table([[k, v["orders"], v["share_pct"], v["with_budget"], money(v["median_budget"]),
-                            money(v["median_offers"])] for k, v in r["clusters"].items()],
-                          ["cluster", "orders", "%", "w/budget", f"median {cur}", "med offers"])]
+                fmt_table([[k, v["orders"], v["distinct"], "-" if v["buyers"] is None else v["buyers"], v["share_pct"],
+                            v["with_budget"], money(v["median_budget"]), money(v["median_offers"])]
+                           for k, v in r["clusters"].items()],
+                          ["cluster", "orders", "distinct", "buyers*", "%", "w/budget", f"median {cur}", "med offers"]),
+                "* distinct buyers among orders whose source shows the buyer (kwork)"]
     if r["segments"]:
         out += ["", f"supply ({r['leads']} leads by segment; % of leads, site issues % of crawled sites):",
                 fmt_table([[k, v["n"], v["no_own_site_pct"], v["social_only_pct"], v["messenger_pct"], v["email_pct"],
@@ -360,11 +363,11 @@ def fmt_scan(r: dict) -> str:
     if r["scores"]:
         sc = r["scores"]
         out += ["", sc["formula"],
-                fmt_table([[t["segment"] + (" (control)" if t["control"] else ""), t["score"], t["demand_orders"],
+                fmt_table([[t["segment"] + (" (control)" if t["control"] else ""), t["score"], t["demand_distinct"],
                             money(t["median_budget"]), money(t["median_offers"]), t["businesses"],
                             "-" if t["gap"] is None else t["gap"], "-" if t["reach"] is None else t["reach"]]
                            for t in sc["segments"]],
-                          ["segment", "score", "orders", f"median {cur}", "med offers", "businesses", "gap", "reach"])]
+                          ["segment", "score", "distinct orders", f"median {cur}", "med offers", "businesses", "gap", "reach"])]
     else:
         out += ["", "no [[market.segments]] in campaign.toml, so nothing is scored (niche-research skill, step 4)"]
     return "\n".join(out + ["", f"-> {r['dir']}/"])
@@ -390,13 +393,13 @@ def cmd_market(args):
            "date": lambda o: o["date"] or o["first_seen"]}[args.sort]
     picked = sorted(picked, key=key, reverse=args.sort == "date")
     shown = picked[: args.n] if args.n else picked
-    rows = [{k: o[k] for k in ("id", "source", "url", "title", "value", "currency", "amount", "offers", "product", "category",
+    rows = [{k: o[k] for k in ("id", "source", "url", "title", "value", "currency", "amount", "offers", "buyer", "product", "category",
                                "type", "date", "first_seen")} | ({"description": o["description"]} if args.full else {})
             for o in shown]
     text = [f"{len(picked)} orders" + (f", showing {len(shown)}" if len(shown) < len(picked) else "")]
     for o in rows:
         text.append(f"{money(o['value']):>9} {o['currency'] or '':<3} {('-' if o['offers'] is None else o['offers']):>4} offers  "
-                    f"[{o['product']}] {o['title'][:100]}\n{'':>24}{o['url'] or o['id']}"
+                    f"[{o['product']}] {o['title'][:100]}\n{'':>24}{o['url'] or o['id']}" + (f"  buyer {o['buyer']}" if o["buyer"] else "")
                     + (f"\n{'':>24}{o['description'][:600]}" if args.full and o.get("description") else ""))
     return {"total": len(picked), "currency": cur, "orders": rows}, "\n".join(text)
 

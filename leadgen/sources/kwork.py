@@ -49,13 +49,15 @@ def categories(html: str) -> dict[str, str]:
 
 
 def to_row(w: dict, cats: dict) -> dict:
+    user = w.get("user") or {}
     return {
         "source_id": w["id"], "url": f"https://kwork.ru/projects/{w['id']}", "title": w.get("name"),
         "description": w.get("description") or "", "budget": float(w["priceLimit"]) if w.get("priceLimit") else None,
         "budget_max": float(w["possiblePriceLimit"]) if w.get("possiblePriceLimit") else None, "currency": "RUB",
         "category": cats.get(str(w.get("category_id")), str(w.get("category_id"))), "offers": w.get("kwork_count"),
         "created": w.get("date_create"), "type": "project",
-        "buyer_hired_pct": ((w.get("user") or {}).get("data") or {}).get("wants_hired_percent"),
+        "buyer_hired_pct": (user.get("data") or {}).get("wants_hired_percent"),
+        "buyer": user.get("username"), "buyer_wants": (user.get("data") or {}).get("wants_count"),
     }
 
 
