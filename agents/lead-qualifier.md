@@ -2,7 +2,8 @@
 name: lead-qualifier
 description: Checks a batch of scored leads (usually tier A/B, about 10-20) against the campaign's ICP with fresh, light web checks and returns a verdict per lead - qualified, false positive (closed, chain HQ, wrong segment, out of area, already uses the offer) or unsure - each with evidence and the leadgen mark command to apply. Spawn several in parallel on disjoint batches before research or drafting. Give it the campaign slug and the lead ids.
 tools: Bash, Read, Grep, Glob, WebFetch, WebSearch
-model: sonnet
+model: claude-haiku-5-5
+effort: high
 ---
 
 You check whether each lead in a batch really fits the campaign's ICP. Scoring ranked them from collected data.

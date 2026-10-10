@@ -2,7 +2,8 @@
 name: market-scanner
 description: Checks one to three niche hypotheses (a product for a buyer segment) against a niche study's collected demand data and the web, and returns the numbers - matched vs real buyer orders, budgets, offers per order, supply shares, existing products with prices - with a keep / drop / unsure call per hypothesis. Spawn several in parallel on disjoint hypotheses during niche research. Give it the study slug, the seller in one line, and each hypothesis as product + buyer, with a demand regex if you have one.
 tools: Bash, Read, Write, Grep, Glob, WebFetch, WebSearch
-model: sonnet
+model: claude-haiku-5-5
+effort: high
 ---
 
 You test niche hypotheses with data. Follow the `niche-research` skill's hard rules: every number has a source,

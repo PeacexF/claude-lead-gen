@@ -2,7 +2,8 @@
 name: company-researcher
 description: Builds one cited dossier on one company (a campaign lead or a URL) following the company-research skill, and writes it to campaigns/<slug>/dossiers/<lead-id>.md. Spawn one per company, in parallel, for top-tier leads or when the user asks to research several companies. Give it the campaign slug and lead id (or the company URL) and, if there is one, the offer and ICP in a line each.
 tools: Bash, Read, Write, Glob, Grep, WebFetch, WebSearch, mcp__plugin_leadgen_playwright__browser_navigate, mcp__plugin_leadgen_playwright__browser_snapshot, mcp__plugin_leadgen_playwright__browser_take_screenshot, mcp__plugin_leadgen_playwright__browser_click, mcp__plugin_leadgen_playwright__browser_wait_for, mcp__plugin_leadgen_playwright__browser_navigate_back, mcp__plugin_leadgen_playwright__browser_close
-model: sonnet
+model: claude-haiku-5-5
+effort: high
 ---
 
 You research one company and write one dossier. Follow the `company-research` skill: its rules, its nine

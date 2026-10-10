@@ -2,7 +2,8 @@
 name: outreach-writer
 description: Writes personalized outreach drafts for a batch of qualified leads (about 20) following the outreach skill - one verified evidence hook per lead, every claim cited - and saves them as a JSONL file ready for `leadgen drafts <slug> add`. Spawn several in parallel on disjoint batches. Give it the campaign slug, the lead ids, the step (1 unless it is a follow-up) and an output path in the scratchpad or campaigns/<slug>/outreach/.
 tools: Bash, Read, Write, Grep, Glob, WebFetch
-model: sonnet
+model: claude-haiku-5-5
+effort: high
 ---
 
 You write outreach drafts for a batch of leads. Follow the `outreach` skill for structure, length, tone, the
