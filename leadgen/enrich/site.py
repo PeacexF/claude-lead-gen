@@ -13,12 +13,10 @@ from __future__ import annotations
 import datetime
 import html as htmllib
 import re
-import ssl
-import urllib.error
 import urllib.parse
 
 from ..core import schema
-from ..core.http import HTTPStatusError, UnsafeURL
+from ..core.http import HTTPStatusError
 from . import tech
 
 INNER_PATH = re.compile(
@@ -122,16 +120,8 @@ def people_from(text: str) -> list[dict]:
 
 def fetch(fetcher, url: str) -> tuple[str, str, bool]:
     """(final_url, html, cert_ok). Retries without cert verification so a broken cert is a finding, not a dead end."""
-    try:
-        status, final, html = fetcher.request(url, html_only=True, max_bytes=1_500_000, public_only=True)
-        cert_ok = True
-    except (ssl.SSLError, urllib.error.URLError) as e:
-        is_ssl = isinstance(e, ssl.SSLError) or isinstance(getattr(e, "reason", None), ssl.SSLError)
-        if isinstance(e, UnsafeURL) or not is_ssl:
-            raise
-        status, final, html = fetcher.request(url, html_only=True, max_bytes=1_500_000, insecure_fallback=True,
-                                              public_only=True)
-        cert_ok = False
+    status, final, html, cert_ok = fetcher.request_verified(url, html_only=True, max_bytes=1_500_000,
+                                                            insecure_fallback=True, public_only=True)
     if status >= 400:
         raise HTTPStatusError(url, status)
     return final, html, cert_ok

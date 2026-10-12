@@ -27,6 +27,9 @@ class FakeFetcher:
             body = json.dumps(body)
         return status, url, body
 
+    def request_verified(self, url, **kw):
+        return (*self.request(url, **kw), True)
+
     def text(self, url, **kw):
         status, _, body = self.request(url, **kw)
         if status >= 400:

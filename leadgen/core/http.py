@@ -172,16 +172,20 @@ class Fetcher:
             lock.release()
 
     # --- main API --------------------------------------------------------
-    def request(self, url: str, data: bytes | None = None, headers: dict | None = None, method: str | None = None,
-                cache: bool = True, ttl: float | None = None, max_bytes: int = 5_000_000,
-                html_only: bool = False, insecure_fallback: bool = False,
-                public_only: bool | None = None) -> tuple[int, str, str]:
-        """Return (status, final_url, text). Cached by (method, url, body).
+    def request(self, url: str, **kw) -> tuple[int, str, str]:
+        """Return (status, final_url, text). Cached by (method, url, body). Arguments: see `request_verified`."""
+        return self.request_verified(url, **kw)[:3]
+
+    def request_verified(self, url: str, data: bytes | None = None, headers: dict | None = None,
+                         method: str | None = None, cache: bool = True, ttl: float | None = None,
+                         max_bytes: int = 5_000_000, html_only: bool = False, insecure_fallback: bool = False,
+                         public_only: bool | None = None) -> tuple[int, str, str, bool]:
+        """Return (status, final_url, text, verified); verified is False when the certificate check was skipped.
 
         public_only: refuse anything but http(s) to public addresses, including after redirects. Set it (here or
         on the Fetcher) whenever the URL comes from scraped or imported data rather than from adapter code.
 
-        insecure_fallback: retry without certificate verification after an SSL error. Only for reading public
+        insecure_fallback: retry without certificate verification after a certificate error. Only for reading public
         business pages (the crawler records the broken certificate as a finding). Never use it for API calls
         that carry keys or for anything that sends data.
         """
@@ -191,21 +195,24 @@ class Fetcher:
         cp = self._cache_path(key) if cache else None
         if cp and cp.exists() and (ttl is None or time.time() - cp.stat().st_mtime < ttl):
             rec = json.loads(cp.read_text())
-            return rec["status"], rec["final"], rec["text"]
+            verified = rec.get("verified", True)
+            if not verified and not insecure_fallback:  # fetched past a broken cert: don't pass it off as verified
+                raise ssl.SSLError(f"certificate verify failed (cached) at {url}")
+            return rec["status"], rec["final"], rec["text"], verified
         host = urllib.parse.urlsplit(url).hostname or ""
         hdrs = {"User-Agent": self.ua, "Accept-Language": self.lang, **(headers or {})}
         if guard:
             check_public(url)
         self._wait(host)
-        status, final, text = self._do(url, data, hdrs, method, max_bytes, html_only, insecure_fallback and data is None,
-                                       guard)
+        status, final, text, verified = self._do(url, data, hdrs, method, max_bytes, html_only,
+                                                 insecure_fallback and data is None, guard)
         if cp and status < 500:
             cp.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp = tempfile.mkstemp(dir=cp.parent, prefix=".tmp-")  # atomic: workers may share a key
             with os.fdopen(fd, "w") as fh:
-                fh.write(json.dumps({"status": status, "final": final, "text": text}))
+                fh.write(json.dumps({"status": status, "final": final, "text": text, "verified": verified}))
             os.replace(tmp, cp)
-        return status, final, text
+        return status, final, text, verified
 
     def _do(self, url, data, hdrs, method, max_bytes, html_only, insecure_fallback, public_only=False):
         req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
@@ -220,10 +227,10 @@ class Fetcher:
                 with urllib.request.build_opener(*handlers).open(req, timeout=self.timeout) as r:
                     ctype = r.headers.get("Content-Type", "")
                     if html_only and ctype and "html" not in ctype:
-                        return r.status, r.geturl(), ""
+                        return r.status, r.geturl(), "", verify
                     raw = r.read(max_bytes)
                     charset = r.headers.get_content_charset() or "utf-8"
-                    return r.status, r.geturl(), raw.decode(charset, "replace")
+                    return r.status, r.geturl(), raw.decode(charset, "replace"), verify
             except urllib.error.HTTPError as e:
                 if e.code in (429,) or (e.code == 403 and "captcha" in (e.read(4000) or b"").decode("utf-8", "replace").lower()):
                     raise Blocked(f"{e.code} at {url}") from e
@@ -232,12 +239,13 @@ class Fetcher:
                     body = e.read(200_000).decode("utf-8", "replace")
                 except Exception:
                     pass
-                return e.code, url, body
+                return e.code, url, body, verify
             except (ssl.SSLError, urllib.error.URLError) as e:
                 if isinstance(getattr(e, "reason", None), UnsafeURL):
                     raise e.reason from e  # do_open wraps it; surface the guard's own error
-                is_ssl = isinstance(e, ssl.SSLError) or isinstance(getattr(e, "reason", None), ssl.SSLError)
-                if verify and is_ssl:
+                bad_cert = isinstance(e, ssl.SSLCertVerificationError) or isinstance(getattr(e, "reason", None),
+                                                                                    ssl.SSLCertVerificationError)
+                if verify and bad_cert and insecure_fallback:  # other TLS errors (EOF, handshake) aren't a cert finding
                     continue
                 raise
         raise RuntimeError("unreachable")
