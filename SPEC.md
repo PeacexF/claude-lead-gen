@@ -59,7 +59,6 @@ claude-lead-gen/                      (marketplace root = leadgen plugin root)
 │   └── cli.py
 ├── providers/                        optional keyed MCP plugins (one directory each)
 ├── templates/                        campaign.toml, brief.md, outreach templates
-├── tools/                            parser-2gis setup script + patch
 ├── tests/                            unittest suite with HTML/JSON fixtures
 └── docs/                             architecture, configuration, sources, compliance
 ```
@@ -193,7 +192,7 @@ Optional provider plugins in the same marketplace, each asking for its key throu
 - **Hunter.io** (`HUNTER_API_KEY`): domain email search and verification.
 
 ### 6.3 RU/CIS (ported from claude-kit)
-2GIS (patched parser-2gis), Yandex Maps, Kwork projects and gigs, FL.ru, pchel.net, workspace.ru tenders,
+2GIS (plain HTTP, ported from pdn-lead), Yandex Maps, Kwork projects and gigs, FL.ru, pchel.net, workspace.ru tenders,
 RKN personal-data operator registry, and RU legal identifiers in the site crawl (ИНН with checksum, ОГРН).
 
 ### 6.4 Browser-assisted (no code adapter)

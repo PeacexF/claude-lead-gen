@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-UA_BROWSER = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"
+UA_BROWSER = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
 UA_BOT = "leadgen/0.1 (+https://github.com/PeacexF/claude-lead-gen)"
 
 
@@ -152,6 +152,16 @@ class Fetcher:
         # percent-encode non-ASCII path/query characters
         return urllib.parse.quote(url, safe=":/?#[]@!$&'()*+,;=%~")
 
+    @staticmethod
+    def _key(url: str, data: bytes | None, method: str | None) -> str:
+        return json.dumps([method or ("POST" if data else "GET"), url, (data or b"").decode("utf-8", "replace")])
+
+    def forget(self, url: str, data: bytes | None = None, method: str | None = None) -> None:
+        """Drop a cached response, e.g. a captcha page, so a later run fetches it again."""
+        cp = self._cache_path(self._key(self.idna_url(url), data, method))
+        if cp:
+            cp.unlink(missing_ok=True)
+
     def _cache_path(self, key: str) -> pathlib.Path | None:
         if not self.cache_dir:
             return None
@@ -191,8 +201,7 @@ class Fetcher:
         """
         url = self.idna_url(url)
         guard = self.public_only if public_only is None else public_only
-        key = json.dumps([method or ("POST" if data else "GET"), url, (data or b"").decode("utf-8", "replace")])
-        cp = self._cache_path(key) if cache else None
+        cp = self._cache_path(self._key(url, data, method)) if cache else None
         if cp and cp.exists() and (ttl is None or time.time() - cp.stat().st_mtime < ttl):
             rec = json.loads(cp.read_text())
             verified = rec.get("verified", True)

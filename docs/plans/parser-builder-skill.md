@@ -21,7 +21,7 @@ The bundled adapters already show the patterns, but they live only in code:
 | State JSON embedded in HTML | `yandex_maps.py` (`<script class="state-view">`), `kwork.py` (`"pagination":` + `raw_decode`) |
 | Server-rendered HTML blocks | `flru.py` (split on a per-item marker, regex fields), `telegram.py` (cursor `?before=`) |
 | Query API over open data | `osm.py` (Nominatim geocode → Overpass QL) |
-| External browser tool | `twogis.py` (patched parser-2gis, `ready()` + `leadgen setup 2gis`) |
+| External browser tool | `twogis.py` until 2026-10-12 (patched parser-2gis, `ready()` + `leadgen setup 2gis`); now plain HTTP |
 | User's own file | `file.py` (column aliases) |
 
 The skill is the written method, so Claude can build the next adapter the same way every time: ready for the

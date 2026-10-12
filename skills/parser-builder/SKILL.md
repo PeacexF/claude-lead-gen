@@ -41,10 +41,12 @@ Open the source in the Playwright MCP (`browser_navigate`, then `browser_network
 2. **JSON the page itself calls** (XHR/fetch in the network log). Same data, stable shape, no HTML parsing.
    Check that the endpoint answers a plain GET/POST without session cookies. If it needs them, it's not usable.
 3. **State JSON embedded in the HTML** (`__NEXT_DATA__`, `window.__INITIAL_STATE__`, `<script type="application/json">`,
-   `"pagination":{...}`). Patterns: `yandex_maps.py`, `kwork.py`.
+   `"pagination":{...}`, `JSON.parse('...')`). Patterns: `yandex_maps.py`, `kwork.py`, `twogis.py` (list page +
+   detail page per record).
 4. **Server-rendered HTML**: split on a per-record marker, then extract fields per block. Patterns: `flru.py`,
    `telegram.py`.
-5. **External browser tool**: last resort, setup via `ready()` + a `leadgen setup` step. Pattern: `twogis.py`.
+5. **External browser tool**: last resort, setup via `ready()` + a `leadgen setup` step. No bundled adapter needs
+   one: a source that renders its data server-side for search engines usually has a plain-HTTP path.
 
 Confirm the path with a plain fetch, not just in the browser: `python3 -c` with `urllib.request`, using the
 User-Agent the adapter will use. If the plain fetch lacks the data, that path won't work for the adapter.

@@ -71,9 +71,10 @@ FeatureServer: `?where=...&outFields=*&f=json&resultOffset=N`).
 
 ## External browser tool
 
-`twogis.py`: a separate tool (patched parser-2gis) runs Chrome, writes CSV, and the adapter parses the CSV. Needs
-`ready()` returning why it isn't usable, plus a `leadgen setup <tool>` step that installs outside the plugin dir.
-Use it only when every pattern above fails and the source permits automated access.
+A separate tool that drives a browser and writes a file the adapter parses. Needs `ready()` returning why it isn't
+usable, plus a `leadgen setup <tool>` step that installs outside the plugin dir. Use it only when every pattern above
+fails and the source permits automated access. `twogis.py` used to work this way (parser-2gis in Chrome, which took
+over the screen); it now reads the state JSON over plain HTTP. Look for that path first.
 
 ## Detail pages
 

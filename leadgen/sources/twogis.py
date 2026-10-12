@@ -1,46 +1,43 @@
-"""2GIS businesses (RU, CIS, plus UAE/Cyprus/Chile... wherever 2GIS runs) via a patched parser-2gis. Ported from claude-kit.
+"""2GIS businesses (RU, CIS, plus UAE/Cyprus/Chile... wherever 2GIS runs), no key, no browser. Ported from pdn-lead.
 
-Needs one-time setup: `leadgen setup 2gis` (clones interlark/parser-2gis, applies tools/parser-2gis-headless.patch,
-creates a Python 3.11 venv with uv). Installed under $LEADGEN_TOOLS or ~/.local/share/leadgen/tools so plugin
-updates don't wipe it. Needs Google Chrome.
+Plain GETs. A search page (`/<city>/search/<query>[/page/N]`) carries 12 branches in its server-rendered state
+(`var initialState = JSON.parse('<JS string>')`), with name, address, rubrics, rating and the result total, but no
+contacts. The firm page (`/<city>/firm/<id>`) carries the branch's site, phones, emails and messengers. A branch of an
+organisation whose firm page was already read in this run reuses its sites instead of another firm page: contacts are
+per branch, but the lead is per site.
 
-Chrome runs visible but off-screen by default, because headless loses results on some queries. Set
-headless=true in the spec to run fully headless.
+2GIS sends browsers it thinks are outdated to /museum, so the User-Agent must name a current Chrome
+(`core.http.UA_BROWSER`); that redirect raises LayoutChanged with that hint. A page without state is a captcha or a
+block: the source stops (Blocked); re-run later and finished units are kept.
 
-spec: {type="twogis", queries=["стоматология"], locations=["kazan"], limit=50, domain="2gis.ru", headless=false}
+spec: {type="twogis", queries=["стоматология"], locations=["kazan"], limit=50, domain="2gis.ru"}
 locations: 2GIS city codes as in 2gis.ru/<code> (moscow, spb, kazan, dubai, astana, ...).
 """
 from __future__ import annotations
 
-import csv
-import os
-import pathlib
-import subprocess
-import tempfile
+import json
+import re
 import urllib.parse
+
+from ..core.http import Blocked
+from . import LayoutChanged
 
 NAME = "twogis"
 KIND = "businesses"
 REGIONS = "RU/CIS (+2GIS countries)"
 ENV: list[str] = []
-ABOUT = "2GIS directory: phones, emails, sites, TG/WA/VK, rating, reviews. Needs `leadgen setup 2gis` + Chrome."
+ABOUT = "2GIS directory: phones, emails, sites, TG/WA/VK, rating, reviews. Free, plain HTTP."
 
+PER_PAGE = 12
+SOCIALS = {"telegram": "telegram", "whatsapp": "whatsapp", "vkontakte": "vk", "instagram": "instagram",
+           "facebook": "facebook", "youtube": "youtube", "twitter": "x"}
+TRACKING = re.compile(r"^(utm_.*|yclid|gclid|from)$")
 
-def tools_dir() -> pathlib.Path:
-    return pathlib.Path(os.environ.get("LEADGEN_TOOLS") or pathlib.Path.home() / ".local/share/leadgen/tools")
-
-
-def parser_bin() -> pathlib.Path:
-    return tools_dir() / "parser-2gis/.venv/bin/parser-2gis"
-
-
-def ready() -> str | None:
-    return None if parser_bin().exists() else "parser-2gis not installed (run: leadgen setup 2gis)"
+_org_sites: dict[str, list[str]] = {}  # organisation id -> sites from its firm page, shared across units in a run
 
 
 def units(spec: dict) -> list[dict]:
-    return [{"query": q, "location": loc, "limit": int(spec.get("limit", 50)), "domain": spec.get("domain", "2gis.ru"),
-             "headless": bool(spec.get("headless", False))}
+    return [{"query": q, "location": loc, "limit": int(spec.get("limit", 50)), "domain": spec.get("domain", "2gis.ru")}
             for loc in spec.get("locations") or [] for q in spec.get("queries") or []]
 
 
@@ -49,44 +46,136 @@ def unit_key(u: dict) -> str:
 
 
 def fetcher(camp):
-    return camp.fetcher(delay=5.0)
+    return camp.fetcher(delay=1.0, lang="ru")
 
 
-def g(r: dict, k: str) -> list[str]:
-    return [r[f"{k} {i}"] for i in (1, 2, 3) if r.get(f"{k} {i}")]
+# --- parsing (pure) ------------------------------------------------------------------------------------------------
+_STATE = re.compile(r"var initialState = JSON\.parse\('(.*?)'\);", re.S)
+_JS_ESC = re.compile(r"\\(u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|.)", re.S)
+_JS_SIMPLE = {"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f", "v": "\v", "0": "\0"}
 
 
-def from_csv_row(r: dict, city: str, query: str) -> dict:
-    return {
-        "source_id": (r.get("2GIS URL") or "").rsplit("/", 1)[-1] or None, "url": r.get("2GIS URL"),
-        "name": r.get("Наименование"), "city": r.get("Город") or city, "segment": query,
-        "address": ", ".join(x for x in (r.get("Город"), r.get("Адрес")) if x),
-        "country": r.get("Страна"),
-        "sites": g(r, "Веб-сайт"), "phones": g(r, "Телефон"), "emails": g(r, "E-mail"),
-        "telegram": g(r, "Telegram"), "whatsapp": g(r, "WhatsApp"), "vk": g(r, "ВКонтакте"),
-        "instagram": g(r, "Instagram"), "facebook": g(r, "Facebook"), "youtube": g(r, "YouTube"), "x": g(r, "Twitter"),
-        "rating": float(r["Рейтинг"]) if r.get("Рейтинг") else None,
-        "reviews": int(float(r["Количество отзывов"])) if r.get("Количество отзывов") else None,
-        "categories": [c.strip() for c in (r.get("Рубрики") or "").split(";") if c.strip()],
-        "lat": float(r["Широта"]) if r.get("Широта") else None, "lon": float(r["Долгота"]) if r.get("Долгота") else None,
+def js_unquote(s: str) -> str:
+    """Decode the escapes of a single-quoted JavaScript string literal (surrogate pairs joined)."""
+    def rep(m):
+        e = m.group(1)
+        if e[0] in "ux" and len(e) > 1:
+            return chr(int(e[1:], 16))
+        return _JS_SIMPLE.get(e, e)  # \\ \' \" \/ and anything else stand for themselves
+    return _JS_ESC.sub(rep, s).encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+
+
+def state(html: str) -> dict:
+    m = _STATE.search(html)
+    if not m:
+        if "captcha" in html.lower() or len(html) < 50_000:
+            raise Blocked("2gis: no initialState on the page (captcha or block)")
+        raise LayoutChanged("2gis: full page without `var initialState = JSON.parse(...)`")
+    return json.loads(js_unquote(m.group(1)))
+
+
+def profiles(st: dict) -> dict[str, dict]:
+    """Entity profiles by bare id ("70000001052205260_abc" -> "70000001052205260")."""
+    prof = ((st.get("data") or {}).get("entity") or {}).get("profile") or {}
+    return {k.split("_", 1)[0]: v["data"] for k, v in prof.items() if isinstance((v or {}).get("data"), dict)}
+
+
+def total(st: dict) -> int | None:
+    for v in (((st.get("data") or {}).get("search") or {}).get("profile") or {}).values():
+        t = (v.get("data") or {}).get("total")
+        if isinstance(t, int):
+            return t
+    return None
+
+
+def clean_url(raw: str) -> str:
+    u = urllib.parse.urlsplit(raw)
+    if u.hostname == "link.2gis.ru" and "?" in raw:  # click-tracking wrapper: the target follows the "?"
+        return clean_url(raw.split("?", 1)[1])
+    q = [(k, v) for k, v in urllib.parse.parse_qsl(u.query, keep_blank_values=True) if not TRACKING.match(k)]
+    return u._replace(query=urllib.parse.urlencode(q), fragment="").geturl()
+
+
+def row(d: dict, fid: str, loc: str, query: str, domain: str = "2gis.ru") -> dict:
+    adm = {a.get("type"): a.get("name") for a in d.get("adm_div") or []}
+    reviews = d.get("reviews") or {}
+    point = d.get("point") or {}
+    out = {
+        "source_id": fid, "url": f"https://{domain}/{loc}/firm/{fid}", "name": d.get("name"),
+        "city": adm.get("city") or loc, "country": adm.get("country"), "segment": query,
+        "address": ", ".join(x for x in (adm.get("city"), d.get("address_name")) if x) or None,
+        "categories": [r["name"] for r in d.get("rubrics") or [] if r.get("name")],
+        "rating": reviews.get("general_rating"), "reviews": reviews.get("general_review_count"),
+        "lat": point.get("lat"), "lon": point.get("lon"),
+        "sites": [], "phones": [], "emails": [], **{k: [] for k in SOCIALS.values()},
     }
+    for group in d.get("contact_groups") or []:
+        for c in group.get("contacts") or []:
+            t, val, link = c.get("type"), c.get("value") or "", c.get("url") or ""
+            field, v = None, None
+            if t == "website" and (link or val):
+                field, v = "sites", clean_url(link or val)
+            elif t == "phone" and val:
+                field, v = "phones", val
+            elif t == "email" and val:
+                field, v = "emails", val
+            elif t in SOCIALS and (link or val):
+                field, v = SOCIALS[t], clean_url(link or val)
+            if field and v not in out[field]:
+                out[field].append(v)
+    return {k: v for k, v in out.items() if v not in ([], None)}
 
 
-def parse_csv(path: pathlib.Path, city: str, query: str) -> list[dict]:
-    with path.open(encoding="utf-8-sig") as fh:
-        return [from_csv_row(r, city, query) for r in csv.DictReader(fh)]
+def org_of(d: dict) -> str | None:
+    return (d.get("org") or {}).get("id")
+
+
+# --- collection ----------------------------------------------------------------------------------------------------
+def page_state(ctx, url: str) -> dict:
+    status, final, html = ctx.fetcher.request(url)
+    try:
+        if urllib.parse.urlsplit(final).path.startswith("/museum"):
+            raise LayoutChanged("2gis sent its outdated-browser page (/museum): update UA_BROWSER in "
+                                "leadgen/core/http.py to a current Chrome version")
+        if status in (403, 429):
+            raise Blocked(f"2gis {status} at {url}")
+        if status >= 400:
+            raise LayoutChanged(f"2gis {status} at {url}")
+        return state(html)
+    except (Blocked, LayoutChanged):
+        ctx.fetcher.forget(url)  # don't keep the wall in the cache: the next run must ask again
+        raise
 
 
 def collect_unit(ctx, unit: dict) -> list[dict]:
-    url = f"https://{unit['domain']}/{unit['location']}/search/{urllib.parse.quote(unit['query'])}"
-    with tempfile.TemporaryDirectory() as td:
-        out = pathlib.Path(td) / "out.csv"
-        cmd = [str(parser_bin()), "-i", url, "-o", str(out), "-f", "csv",
-               "--chrome.headless", "yes" if unit["headless"] else "no", "--parser.max-records", str(unit["limit"]),
-               "--writer.csv.add-comments", "no", "--writer.csv.remove-empty-columns", "no"]
-        env = {**os.environ, "PARSER_2GIS_OFFSCREEN": "" if unit["headless"] else "1"}
-        ctx.fetcher._wait("2gis")  # throttle between parser launches
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900, env=env)
-        if not out.exists() or out.stat().st_size == 0:
-            raise RuntimeError(f"parser-2gis produced no output: {(proc.stdout + proc.stderr)[-300:]}")
-        return parse_csv(out, unit["location"], unit["query"])
+    base = f"https://{unit['domain']}/{unit['location']}"
+    search = f"{base}/search/{urllib.parse.quote(unit['query'])}"
+    pages = max(1, -(-unit["limit"] // PER_PAGE))
+    rows, seen = [], set()
+    for p in range(1, pages + 1):
+        st = page_state(ctx, search + (f"/page/{p}" if p > 1 else ""))
+        found = profiles(st)
+        branches = [(fid, d) for fid, d in sorted(found.items()) if d.get("type") == "branch" and fid not in seen]
+        for fid, d in branches:
+            if len(rows) >= unit["limit"]:
+                break
+            seen.add(fid)
+            org = org_of(d)
+            if org and org in _org_sites:  # a branch of an organisation already read: reuse its sites
+                r = row(d, fid, unit["location"], unit["query"], unit["domain"])
+                if _org_sites[org]:
+                    r["sites"] = list(_org_sites[org])
+                rows.append(r)
+                continue
+            firm = profiles(page_state(ctx, f"{base}/firm/{fid}")).get(fid)
+            if firm is None:
+                ctx.log(f"[twogis] firm {fid}: not in its page state; using the search entry")
+                firm = d
+            r = row(firm, fid, unit["location"], unit["query"], unit["domain"])
+            if org:
+                _org_sites[org] = r.get("sites") or []
+            rows.append(r)
+        n = total(st)
+        if len(rows) >= unit["limit"] or len(found) < PER_PAGE or not branches or (n is not None and len(seen) >= n):
+            break
+    return rows

@@ -47,7 +47,7 @@ limit = 500
 # pages = 4
 
 # [[sources]]
-# type = "twogis"          # needs: leadgen setup 2gis
+# type = "twogis"          # 2GIS city codes as in 2gis.ru/<code>
 # queries = ["стоматология"]
 # locations = ["kazan"]
 # limit = 50

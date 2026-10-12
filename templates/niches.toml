@@ -43,7 +43,7 @@ default_phone_cc = ""
 # limit = 50
 
 # [[sources]]
-# type = "yandex_maps"     # RU/CIS; or twogis (leadgen setup 2gis) for the best contact coverage
+# type = "yandex_maps"     # RU/CIS; or twogis for the best contact coverage
 # queries = ["стоматология"]
 # locations = ["kazan"]
 # pages = 2

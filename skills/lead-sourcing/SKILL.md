@@ -13,7 +13,7 @@ description: Chooses and configures lead sources by geography and business type 
 |---|---|---|---|
 | Anywhere | `osm` | `google_places` (key) | OSM coverage is uneven: good for EU cities, thin in places. Check `leadgen inspect` fill rates. |
 | UK | `osm`, `companies_house` (free key) | `google_places` | Companies House gives new registrations (timing signal) and officers. |
-| RU / CIS | `twogis` (`leadgen setup 2gis` + Chrome), `yandex_maps` | | 2GIS has the best contact coverage (TG/WA/VK). Yandex stops at captcha; re-run later. |
+| RU / CIS | `twogis`, `yandex_maps` | | 2GIS has the best contact coverage (TG/WA/VK). Yandex stops at captcha; re-run later. |
 | Tech companies, any | `hn_hiring`, `file` (exports) | | Hiring signal included. Add `jobs = true` in `[enrich]` for ATS boards. |
 | Your own list | `file` (CSV/JSONL) | | CRM exports, trade-show lists, Apify output. Column names are matched by alias. |
 | Freelancers / suppliers (RU) | `kwork_gigs` | | Partners and competitors rather than buyers. |

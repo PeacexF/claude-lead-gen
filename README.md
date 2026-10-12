@@ -100,7 +100,7 @@ leadgen send <slug> [--dry-run | --approve <batch>]
 leadgen suppress <email|domain|phone>  global do-not-contact list
 leadgen market <slug> scan             niche study tables: product types, clusters, supply, scores
 leadgen market <slug> orders | terms   the orders behind a number; common words (--product --cluster --match)
-leadgen doctor | setup 2gis
+leadgen doctor
 ```
 
 Exit codes: 1 error, 2 usage, 3 send refused.

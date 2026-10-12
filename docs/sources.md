@@ -18,7 +18,7 @@ How to choose sources for a market is in the `lead-sourcing` skill. This page is
 | `hn_hiring` | Global, tech | — | Companies posting in Hacker News "Who is hiring?" threads, filtered by keywords and location. Hiring signal. |
 | `file` | Any | — | Your own CSV/JSONL: CRM exports, trade-show lists, Apify output. Columns are matched by alias. Unknown columns are kept under `extra`. |
 | `yandex_maps` | RU/CIS | — | Website, phones, Telegram/WhatsApp/VK, rating, reviews. Stops at a captcha (re-run later). |
-| `twogis` | RU/CIS and other 2GIS countries | `leadgen setup 2gis`, Chrome | Phones, emails, websites, TG/WA/VK, rating, reviews. The best contact coverage in RU/CIS. |
+| `twogis` | RU/CIS and other 2GIS countries | — | Phones, emails, websites, TG/WA/VK, rating, reviews. The best contact coverage in RU/CIS. Plain HTTP: a search page (12 per page) plus one firm page per organisation. |
 | `kwork_gigs` | RU | — | Kwork sellers for a service query: gigs, prices, reviews. For partners, suppliers or competitors, not buyers. |
 
 ### Demand (niche research)
@@ -84,9 +84,8 @@ pages = 4                          # 25 results per page
 type = "twogis"
 queries = ["стоматология"]
 locations = ["kazan"]              # 2GIS city codes as in 2gis.ru/<code>
-limit = 50
-domain = "2gis.ru"
-headless = false                   # Chrome runs off-screen by default; headless loses results on some queries
+limit = 50                         # results per query × location (12 per search page)
+domain = "2gis.ru"                 # or 2gis.kz, 2gis.ae, ...
 
 [[sources]]
 type = "kwork_gigs"

@@ -153,7 +153,6 @@ Order stats (products, clusters, segments): `orders`, `distinct` (different text
 | Variable | Used by |
 |---|---|
 | `LEADGEN_HOME` | Workspace root (default: the current directory). |
-| `LEADGEN_TOOLS` | Where `leadgen setup 2gis` installs parser-2gis (default `~/.local/share/leadgen/tools`). |
 | `GOOGLE_PLACES_API_KEY` | `google_places` source. |
 | `COMPANIES_HOUSE_API_KEY` | `companies_house` source and registry step (free key). |
 | `OPENCORPORATES_API_TOKEN`, `HUNTER_API_KEY` | Reported by `leadgen doctor`. No adapter uses them yet. |

@@ -14,7 +14,6 @@ import os
 import pathlib
 import shutil
 import socket
-import subprocess
 import sys
 
 from . import enrich, market, score, sources
@@ -499,9 +498,8 @@ def cmd_suppress(args):
     return {"path": str(sup.path), "added": new}, f"added {len(new)} to {sup.path}" + (f": {', '.join(new)}" if new else "")
 
 
-# --- setup / health ------------------------------------------------------------------------------------------------
+# --- health --------------------------------------------------------------------------------------------------------
 def cmd_doctor(args):
-    from .sources import twogis
     checks = []
 
     def add(name, ok, detail="", optional=False):
@@ -520,45 +518,8 @@ def cmd_doctor(args):
         checks.append({"check": f"env {e}", "ok": None, "detail": "set" if os.environ.get(e) else "not set (optional)"})
     add("npx (Playwright MCP)", shutil.which("npx"), shutil.which("npx") or "install Node.js for the browser MCP",
         optional=True)
-    add("parser-2gis (twogis source)", twogis.ready() is None, twogis.ready() or str(twogis.parser_bin()), optional=True)
-    chrome = next((p for p in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",)
-                   if pathlib.Path(p).exists()), None) or shutil.which("google-chrome") or shutil.which("chromium")
-    add("Chrome (twogis source)", chrome, chrome or "not found", optional=True)
     mark = {True: "ok  ", False: "FAIL", None: "-   "}
     return {"checks": checks}, "\n".join(f"{mark[c['ok']]} {c['check']:<30} {c['detail']}" for c in checks)
-
-
-def cmd_setup(args):
-    """Install parser-2gis (patched) outside the plugin dir, so plugin updates don't wipe it."""
-    from .sources import twogis
-    if args.tool != "2gis":
-        raise CLIError(f"unknown tool {args.tool!r}; known: 2gis")
-    for need in ("git", "uv"):
-        if not shutil.which(need):
-            raise CLIError(f"{need} not found on PATH (uv: https://github.com/astral-sh/uv)")
-    patch = pathlib.Path(__file__).resolve().parents[1] / "tools" / "parser-2gis-headless.patch"
-    dest = twogis.tools_dir() / "parser-2gis"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-
-    def run(cmd, cwd=None, check=True):
-        log("$ " + " ".join(cmd))
-        return subprocess.run(cmd, cwd=cwd, check=check, capture_output=True, text=True)
-
-    try:
-        if not dest.exists():
-            run(["git", "clone", "--depth", "1", "https://github.com/interlark/parser-2gis", str(dest)])
-        if run(["git", "apply", "--check", str(patch)], cwd=dest, check=False).returncode == 0:
-            run(["git", "apply", str(patch)], cwd=dest)
-        else:
-            log("patch already applied (or upstream changed; check parser-2gis if collection fails)")
-        run(["uv", "venv", "-p", "3.11", ".venv", "-q"], cwd=dest)
-        run(["uv", "pip", "install", "-p", ".venv/bin/python", "-e", ".", "-q"], cwd=dest)
-    except subprocess.CalledProcessError as e:
-        raise CLIError(f"{' '.join(e.cmd)} failed: {(e.stderr or e.stdout or '').strip()[-500:]}") from e
-    ok = twogis.ready() is None
-    if not ok:
-        raise CLIError(f"install finished but {twogis.parser_bin()} is missing")
-    return {"installed": str(twogis.parser_bin())}, f"ok: {twogis.parser_bin()}"
 
 
 # --- parser --------------------------------------------------------------------------------------------------------
@@ -649,8 +610,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("values", nargs="*")
     sp.add_argument("--reason")
     cmd("doctor", cmd_doctor, "check Python, network, optional tools and keys", slug=False)
-    sp = cmd("setup", cmd_setup, "install optional tools (2gis: patched parser-2gis)", slug=False)
-    sp.add_argument("tool", choices=["2gis"])
     return p
 
 
