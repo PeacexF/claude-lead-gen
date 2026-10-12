@@ -10,7 +10,7 @@ from unittest import mock
 
 from leadgen import cli, sources
 from leadgen.core.http import Blocked
-from leadgen.sources import LayoutChanged, hn_hiring, twogis
+from leadgen.sources import LayoutChanged, hn_hiring, opencorporates, sec_edgar, twogis
 from leadgen.core.campaign import PLUGIN_ROOT, Campaign
 from tests.fakes import FakeFetcher
 
@@ -92,14 +92,11 @@ GIS_CONTACTS = [{"contacts": [
 class _GisFetcher(FakeFetcher):
     def __init__(self, routes, final=None):
         super().__init__(routes)
-        self.final, self.forgotten = final or {}, []
+        self.final = final or {}
 
     def request(self, url, data=None, headers=None, **kw):
         status, _, body = super().request(url, data, headers, **kw)
         return status, self.final.get(url, url), body
-
-    def forget(self, url, **kw):
-        self.forgotten.append(url)
 
 
 class TwoGisTest(unittest.TestCase):
@@ -164,6 +161,102 @@ class TwoGisTest(unittest.TestCase):
         self.assertIn("UA_BROWSER", str(e.exception))
         with self.assertRaises(LayoutChanged):  # a full page without the state is a layout change, not a block
             twogis.state("<html>" + " " * 60_000 + "</html>")
+
+
+FORM_D = """<?xml version="1.0"?>
+<edgarSubmission><submissionType>D</submissionType>
+<primaryIssuer><cik>0009990001</cik><entityName>Example Robotics, Inc.</entityName>
+<issuerAddress><street1>1 TEST WAY</street1><city>AUSTIN</city><stateOrCountry>TX</stateOrCountry><zipCode>78701</zipCode></issuerAddress>
+<issuerPhoneNumber>5125550100</issuerPhoneNumber><jurisdictionOfInc>DELAWARE</jurisdictionOfInc><entityType>Corporation</entityType>
+<yearOfInc><withinFiveYears>true</withinFiveYears><value>2025</value></yearOfInc></primaryIssuer>
+<relatedPersonsList><relatedPersonInfo><relatedPersonName><firstName>Ada</firstName><lastName>Example</lastName></relatedPersonName>
+<relatedPersonRelationshipList><relationship>Executive Officer</relationship><relationship>Director</relationship></relatedPersonRelationshipList>
+</relatedPersonInfo></relatedPersonsList>
+<offeringData><industryGroup><industryGroupType>Other Technology</industryGroupType></industryGroup>
+<issuerSize><revenueRange>No Revenues</revenueRange></issuerSize>
+<typeOfFiling><dateOfFirstSale><value>2026-09-20</value></dateOfFirstSale></typeOfFiling>
+<offeringSalesAmounts><totalOfferingAmount>2000000</totalOfferingAmount><totalAmountSold>500000</totalAmountSold></offeringSalesAmounts>
+</offeringData></edgarSubmission>"""
+
+
+def efts(*hits, total=None):
+    return {"hits": {"total": {"value": total if total is not None else len(hits)}, "hits": [
+        {"_id": f"{adsh}:{file}", "_source": {"ciks": [cik], "form": form, "file_date": "2026-10-09",
+                                               "display_names": [f"Co {cik}  (CIK {cik})"], "biz_locations": ["Austin, TX"]}}
+        for cik, adsh, file, form in hits]}}
+
+
+class SecEdgarTest(unittest.TestCase):
+    UNIT = {"forms": "D", "query": "", "from": "2026-10-01", "to": "2026-10-10", "limit": 50, "amendments": False,
+            "state": "TX"}
+
+    def test_search_url_filters_by_business_state(self):
+        u = sec_edgar.search_url(self.UNIT, 100)
+        self.assertIn("locationType=located", u)
+        self.assertIn("locationCodes=TX", u)
+        self.assertIn("from=100", u)
+
+    def test_form_d_row(self):
+        f = {"cik": "9990001", "adsh": "0009990001-26-000001", "file": "primary_doc.xml", "form": "D",
+             "filed": "2026-10-09", "name": "x"}
+        r = sec_edgar.form_d(FORM_D, f)
+        self.assertEqual((r["name"], r["city"], r["phones"], r["country"]), ("Example Robotics, Inc.", "Austin",
+                                                                            ["5125550100"], "US"))
+        self.assertEqual(r["legal"]["registry_ids"], {"cik": "9990001"})
+        self.assertEqual(r["people"][0]["name"], "Ada Example")
+        self.assertEqual(r["people"][0]["role"], "Executive Officer, Director")
+        self.assertEqual(r["signals"][0]["type"], "funding")
+        self.assertIn("$500,000 sold of $2,000,000 offered", r["signals"][0]["value"])
+        self.assertIn("/Archives/edgar/data/9990001/000999000126000001/primary_doc.xml", r["signals"][0]["source"])
+
+    def test_dtd_is_refused(self):
+        bomb = '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaaa">]><edgarSubmission>&a;</edgarSubmission>'
+        with self.assertRaises(ValueError):
+            sec_edgar.parse_xml(bomb)
+
+    def test_collect_one_row_per_company_and_skips_amendments(self):
+        search = efts(("0009990001", "0009990001-26-000002", "primary_doc.xml", "D"),
+                      ("0009990001", "0009990001-26-000001", "primary_doc.xml", "D"),
+                      ("0009990002", "0009990002-26-000001", "primary_doc.xml", "D/A"))
+        f = FakeFetcher({sec_edgar.search_url(self.UNIT): search,
+                         "https://www.sec.gov/Archives/edgar/data/9990001/": FORM_D})
+        rows = sec_edgar.collect_unit(mock.Mock(fetcher=f, log=lambda m: None), self.UNIT)
+        self.assertEqual([r["source_id"] for r in rows], ["9990001"])
+        self.assertIn("/9990001/000999000126000002/primary_doc.xml", rows[0]["signals"][0]["source"])  # newest filing
+
+
+class OpenCorporatesTest(unittest.TestCase):
+    UNIT = {"query": "", "industry": "", "from": "2026-07-01", "to": "", "limit": 10, "jurisdiction": "gb"}
+
+    def setUp(self):
+        p = mock.patch.dict(os.environ, {"OPENCORPORATES_API_TOKEN": "tok-SECRET"})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_row(self):
+        c = {"name": "EXAMPLE LTD", "company_number": "01234567", "jurisdiction_code": "gb",
+             "incorporation_date": "2026-08-01", "current_status": "Active", "registered_address_in_full": "1 Test St, Leeds",
+             "registered_address": {"locality": "Leeds"}, "opencorporates_url": "https://opencorporates.com/companies/gb/01234567"}
+        r = opencorporates.row(c, self.UNIT)
+        self.assertEqual(r["legal"]["registry_ids"], {"opencorporates": "gb/01234567", "company_number": "01234567"})
+        self.assertEqual((r["country"], r["city"]), ("GB", "Leeds"))
+        self.assertEqual(r["signals"][0]["type"], "new_registration")
+
+    def test_paginates(self):
+        page = lambda n, items: {"results": {"companies": [{"company": {"name": f"C{i}", "company_number": str(i),
+                                                                       "jurisdiction_code": "gb"}} for i in items],
+                                             "page": n, "total_pages": 2}}
+        f = FakeFetcher({"https://api.opencorporates.com/v0.4/companies/search?": page(1, range(5))})
+        f.routes["https://api.opencorporates.com/v0.4/companies/search?per_page=100&order=incorporation_date&inactive=false&jurisdiction_code=gb&incorporation_date=2026-07-01%3A&page=2"] = page(2, range(5, 9))
+        rows = opencorporates.collect_unit(mock.Mock(fetcher=f), self.UNIT)
+        self.assertEqual(len(rows), 9)
+
+    def test_refused_token_stops_and_is_not_cached(self):
+        f = FakeFetcher({"https://api.opencorporates.com/": (401, "{}")})
+        with self.assertRaises(Blocked) as e:
+            opencorporates.get(f, "companies/search", {"q": "x"})
+        self.assertNotIn("tok-SECRET", str(e.exception))
+        self.assertEqual(len(f.forgotten), 1)
 
 
 class SourcesTest(unittest.TestCase):

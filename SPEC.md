@@ -182,14 +182,14 @@ Optional provider plugins in the same marketplace, each asking for its key throu
 - **DNS over HTTPS**: MX/SPF lookup → email deliverability and mail provider (Google Workspace, Microsoft 365, …).
 - **Hacker News (Algolia API)**: "Who is hiring" threads and keyword search → hiring signals and companies.
 - **Public ATS boards** (Greenhouse, Lever, Ashby): open roles per company → hiring signals.
-- **SEC EDGAR**: US public-company filings, company metadata (no key; contact UA required).
+- **SEC EDGAR** (`sec_edgar`): companies from filings via full-text search; Form D (private offerings) by default, with phone, executives and amounts (no key; `SEC_EDGAR_UA` contact User-Agent required).
 - **Telegram public channels** (`t.me/s/…`): posts, no account.
 
 ### 6.2 Global, keyed (optional, env var)
 - **Google Places API** (`GOOGLE_PLACES_API_KEY`): Maps businesses with ratings.
 - **UK Companies House** (`COMPANIES_HOUSE_API_KEY`, free).
-- **OpenCorporates** (`OPENCORPORATES_API_TOKEN`).
-- **Hunter.io** (`HUNTER_API_KEY`): domain email search and verification.
+- **OpenCorporates** (`OPENCORPORATES_API_TOKEN`, paid): `opencorporates` source and registry step.
+- **Hunter.io** (`HUNTER_API_KEY`): `hunter` enrichment step (domain search: emails, people, pattern; Hunter's verification).
 
 ### 6.3 RU/CIS (ported from claude-kit)
 2GIS (plain HTTP, ported from pdn-lead), Yandex Maps, Kwork projects and gigs, FL.ru, pchel.net, workspace.ru tenders,

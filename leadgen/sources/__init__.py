@@ -38,8 +38,8 @@ from ..core.campaign import Campaign, today, workspace
 from ..core.http import Blocked, Fetcher
 from ..core.store import read_jsonl, write_jsonl
 
-MODULES = ["osm", "google_places", "companies_house", "hn_hiring", "file", "yandex_maps", "twogis", "telegram",
-           "kwork", "kwork_gigs", "flru", "pchel", "workspace_ru"]
+MODULES = ["osm", "google_places", "companies_house", "opencorporates", "sec_edgar", "hn_hiring", "file", "yandex_maps",
+           "twogis", "telegram", "kwork", "kwork_gigs", "flru", "pchel", "workspace_ru"]
 
 
 REQUIRED = ("NAME", "KIND", "REGIONS", "ABOUT", "units", "unit_key", "collect_unit")

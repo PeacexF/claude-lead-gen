@@ -1,7 +1,13 @@
 import unittest
 
 from leadgen.core import schema
-from leadgen.enrich import dns, jobs, registry, site, tech
+import os
+from unittest import mock
+
+from leadgen import enrich
+from leadgen.core.campaign import DEFAULTS
+from leadgen.core.http import Blocked
+from leadgen.enrich import dns, hunter, jobs, registry, site, tech
 
 from .fakes import FakeFetcher, fixture
 
@@ -210,3 +216,62 @@ class RegistryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+HUNTER = {"data": {"domain": "harbor-dental.test", "pattern": "{first}", "organization": "Harbor Dental", "emails": [
+    {"value": "ana@harbor-dental.test", "type": "personal", "confidence": 94, "first_name": "Ana", "last_name": "Silva",
+     "position": "Practice Manager", "sources": [{"uri": "http://harbor-dental.test/team/"}],
+     "verification": {"date": "2026-09-01", "status": "valid"}},
+    {"value": "info@harbor-dental.test", "type": "generic", "confidence": 80, "sources": [],
+     "verification": {"status": "accept_all"}}]}}
+
+
+class HunterTest(unittest.TestCase):
+    def setUp(self):
+        p = mock.patch.dict(os.environ, {"HUNTER_API_KEY": "k"})
+        p.start()
+        self.addCleanup(p.stop)
+        self.cfg = {"enrich": {**DEFAULTS["enrich"], "hunter": True}}
+
+    def lead(self, **kw):
+        return {**schema.empty_lead(), "id": "harbor-dental.test", "domain": "harbor-dental.test", "tier": "A",
+                "emails": [{"value": "info@harbor-dental.test", "source": "site", "type": "generic", "verified": "mx"}], **kw}
+
+    def test_runs_only_on_wanted_tiers_with_a_key(self):
+        self.assertTrue(enrich.needs(self.lead(), "hunter", self.cfg))
+        self.assertFalse(enrich.needs(self.lead(tier="C"), "hunter", self.cfg))
+        self.assertFalse(enrich.needs(self.lead(hunter={"checked": "2026-10-12"}), "hunter", self.cfg))
+        with mock.patch.dict(os.environ, {"HUNTER_API_KEY": ""}):
+            self.assertFalse(enrich.needs(self.lead(), "hunter", self.cfg))
+
+    def test_adds_people_and_new_emails_only(self):
+        f = FakeFetcher({"https://api.hunter.io/": HUNTER})
+        lead = hunter.enrich(f, self.lead())
+        vals = [e["value"] for e in lead["emails"]]
+        self.assertEqual(vals, ["info@harbor-dental.test", "ana@harbor-dental.test"])  # no duplicate of the site's
+        ana = lead["emails"][1]
+        self.assertEqual((ana["type"], ana["verified"], ana["source"]), ("personal", "smtp", "http://harbor-dental.test/team/"))
+        self.assertEqual(lead["people"][0], {"name": "Ana Silva", "role": "Practice Manager",
+                                             "email": "ana@harbor-dental.test", "source": "https://hunter.io/search/harbor-dental.test"})
+        self.assertEqual((lead["hunter"]["found"], lead["hunter"]["pattern"]), (2, "{first}"))
+
+    def test_quota_stops_the_step_and_is_not_cached(self):
+        f = FakeFetcher({"https://api.hunter.io/": (429, "{}")})
+        with self.assertRaises(Blocked):
+            hunter.enrich(f, self.lead())
+        self.assertEqual(len(f.forgotten), 1)
+
+
+class RegistryNeedsTest(unittest.TestCase):
+    def test_lookup_without_its_identifier_is_not_queued(self):
+        cfg = {"enrich": {**DEFAULTS["enrich"], "registry": ["rkn"]}}
+        bare = {**schema.empty_lead(), "id": "x"}
+        self.assertFalse(enrich.needs(bare, "registry", cfg))
+        with_inn = {**bare, "legal": {"name": None, "registry_ids": {"inn": INN}}}
+        self.assertTrue(enrich.needs(with_inn, "registry", cfg))
+        self.assertFalse(enrich.needs({**with_inn, "registry": {"rkn": {"checked": "x"}}}, "registry", cfg))
+
+    def test_opencorporates_ref_falls_back_to_uk_number(self):
+        lead = {"legal": {"registry_ids": {"company_number": "1234567"}}}
+        self.assertEqual(registry.oc_ref(lead), "gb/01234567")
+        self.assertEqual(registry.oc_ref({"legal": {"registry_ids": {"opencorporates": "pt/507"}}}), "pt/507")

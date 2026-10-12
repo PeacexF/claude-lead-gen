@@ -16,6 +16,11 @@ aren't better: one well-chosen route beats five guessed addresses.
 - `people[]` from team/about pages. **Heuristic**: names and roles extracted by pattern. Treat as unverified
   until you've seen the page.
 - `legal.registry_ids` → registry officers (`registry` step) for the legal decision maker.
+- `hunter` (when `[enrich] hunter = true` and `HUNTER_API_KEY` is set): emails Hunter.io knows at the domain, with
+  names, positions and the address pattern, for leads scored into `hunter_tiers`. It spends credits, so run it on
+  the shortlist: `leadgen enrich <slug> --steps hunter --only <id,...>`. `verified = "smtp"` means Hunter's check
+  said valid. Hunter's people are published somewhere (`sources` in `lead.hunter.emails`): open one before you
+  rely on the role.
 
 ## Find the decision maker
 
@@ -46,7 +51,8 @@ Guessing `first.last@domain` is a last resort:
 - Only for B2B where the compliance profile allows it (`compliance` skill). Under PECR/GDPR-style rules, a guessed
   personal address of an individual carries more risk than a published generic one. Under 38-ФЗ (RU) cold
   promotional email needs prior consent regardless.
-- Infer the pattern from at least one **published** address at the same domain, not from a guess.
+- Infer the pattern from at least one **published** address at the same domain, not from a guess. Hunter's
+  `lead.hunter.pattern` counts as published evidence when its sources list real pages.
 - `verified = "mx"` checks the domain only. Never mark a guessed address as verified, and never send to one
   without the user's explicit go-ahead.
 - Note `type: personal, source: "pattern from <published address> (<url>)"`.

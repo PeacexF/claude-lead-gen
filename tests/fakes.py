@@ -15,6 +15,7 @@ class FakeFetcher:
     def __init__(self, routes: dict):
         self.routes = routes
         self.calls: list[str] = []
+        self.forgotten: list[str] = []
 
     def request(self, url, data=None, headers=None, **kw):
         self.calls.append(url)
@@ -26,6 +27,9 @@ class FakeFetcher:
         if not isinstance(body, str):
             body = json.dumps(body)
         return status, url, body
+
+    def forget(self, url, **kw):
+        self.forgotten.append(url)
 
     def request_verified(self, url, **kw):
         return (*self.request(url, **kw), True)

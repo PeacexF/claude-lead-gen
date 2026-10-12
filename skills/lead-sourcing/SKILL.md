@@ -11,7 +11,8 @@ description: Chooses and configures lead sources by geography and business type 
 
 | Market | First choice (free) | Add when available | Notes |
 |---|---|---|---|
-| Anywhere | `osm` | `google_places` (key) | OSM coverage is uneven: good for EU cities, thin in places. Check `leadgen inspect` fill rates. |
+| Anywhere | `osm` | `google_places` (key), `opencorporates` (paid token) | OSM coverage is uneven: good for EU cities, thin in places. Check `leadgen inspect` fill rates. OpenCorporates adds new registrations in 140+ registries, with no contacts. |
+| US | `osm`, `sec_edgar` (`SEC_EDGAR_UA`) | `google_places` | Form D filings = private companies that just raised money, with phone and named executives. Rarely a website: find it (`contact-discovery`) before the crawl. |
 | UK | `osm`, `companies_house` (free key) | `google_places` | Companies House gives new registrations (timing signal) and officers. |
 | RU / CIS | `twogis`, `yandex_maps` | | 2GIS has the best contact coverage (TG/WA/VK). Yandex stops at captcha; re-run later. |
 | Tech companies, any | `hn_hiring`, `file` (exports) | | Hiring signal included. Add `jobs = true` in `[enrich]` for ATS boards. |

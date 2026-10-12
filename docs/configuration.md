@@ -39,7 +39,10 @@ A unit is one query × one location, stored as one raw file. Adding a query fetc
 | `max_inner_pages` | `4` | Contact/about/team/legal pages per site, after the homepage. |
 | `dns` | `true` | MX/SPF/DMARC over DNS-over-HTTPS: mail provider, `emails[].verified = "mx"`, `no_mx` signal. |
 | `jobs` | `false` | Greenhouse/Lever/Ashby boards for the lead's domain: `jobs.open_roles` and a `hiring` signal. |
-| `registry` | `[]` | `"rkn"` (RU, by ИНН, free) and `"companies_house"` (UK, needs a key). |
+| `registry` | `[]` | `"rkn"` (RU, by ИНН, free), `"companies_house"` (UK, needs a key), `"opencorporates"` (any jurisdiction, needs a token). |
+| `hunter` | `false` | Hunter.io domain search for emails and named people (needs `HUNTER_API_KEY`; spends credits). |
+| `hunter_tiers` | `["A", "B"]` | Only leads already scored into these tiers are searched. |
+| `hunter_limit` | `10` | Emails asked for per domain (the free plan returns at most 10). |
 | `workers` | `8` | Leads enriched in parallel. Per-host throttling still applies. |
 
 `leadgen enrich <slug> --steps site,dns --only <id> --limit N --refresh` overrides these for one run.
@@ -155,7 +158,9 @@ Order stats (products, clusters, segments): `orders`, `distinct` (different text
 | `LEADGEN_HOME` | Workspace root (default: the current directory). |
 | `GOOGLE_PLACES_API_KEY` | `google_places` source. |
 | `COMPANIES_HOUSE_API_KEY` | `companies_house` source and registry step (free key). |
-| `OPENCORPORATES_API_TOKEN`, `HUNTER_API_KEY` | Reported by `leadgen doctor`. No adapter uses them yet. |
+| `OPENCORPORATES_API_TOKEN` | `opencorporates` source and registry step (paid plans). Sent in the URL, kept out of the cache and logs. |
+| `HUNTER_API_KEY` | `hunter` enrichment step. |
+| `SEC_EDGAR_UA` | `sec_edgar` source: the User-Agent the SEC requires, your name and a contact email (`"Jane Doe jane@example.com"`). |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | The email sender. Port 465 uses implicit TLS, any other port STARTTLS. |
 
 Set keys in your shell profile or in Claude Code's `env` settings, never in a file in a repo. For the strongest

@@ -15,6 +15,8 @@ How to choose sources for a market is in the `lead-sourcing` skill. This page is
 | `osm` | Global; strongest in Europe | — | OpenStreetMap POIs via Nominatim + Overpass: name, website, phone, email, address, socials, VAT. Contacts are present on a minority of POIs, so pair with the site crawl. |
 | `google_places` | Global | `GOOGLE_PLACES_API_KEY` | Places API (New) text search: website, phone, rating, review count, Maps URL. Up to 60 per query. Billed past Google's free usage. |
 | `companies_house` | UK | `COMPANIES_HOUSE_API_KEY` (free) | Active companies by SIC code, location and incorporation date ("new company" timing signal). No websites or phones. |
+| `opencorporates` | Global (140+ registries) | `OPENCORPORATES_API_TOKEN` (paid) | Companies by jurisdiction, name words, industry code and incorporation date (`new_registration` signal). No websites or phones. Built from the API reference; not yet run live (no token). |
+| `sec_edgar` | US | `SEC_EDGAR_UA` (your name + email, no key) | Companies from SEC filings. Form D (default): private companies that just raised money: address, phone, executive officers and directors, industry, amounts offered and sold (`funding` signal). Rarely a website. |
 | `hn_hiring` | Global, tech | — | Companies posting in Hacker News "Who is hiring?" threads, filtered by keywords and location. Hiring signal. |
 | `file` | Any | — | Your own CSV/JSONL: CRM exports, trade-show lists, Apify output. Columns are matched by alias. Unknown columns are kept under `extra`. |
 | `yandex_maps` | RU/CIS | — | Website, phones, Telegram/WhatsApp/VK, rating, reviews. Stops at a captcha (re-run later). |
@@ -62,6 +64,23 @@ locations = ["Manchester"]
 incorporated_from = "2026-07-01"
 incorporated_to = ""
 limit = 500
+
+[[sources]]
+type = "opencorporates"
+jurisdictions = ["gb", "pt", "us_de"]  # OpenCorporates jurisdiction codes
+query = ""                         # words in the company name (optional)
+industry_codes = ["eu_nace_2-6201"] # "<scheme>-<code>" (optional)
+incorporated_from = "2026-07-01"
+limit = 200
+
+[[sources]]
+type = "sec_edgar"
+forms = ["D"]                      # Form D = private offering (just raised money); any EDGAR form works
+query = ""                         # EDGAR full-text search words (optional)
+states = ["TX", "CA"]              # business-address states; empty = all
+days = 30                          # or filed_from / filed_to = "YYYY-MM-DD"
+limit = 200                        # companies per state
+amendments = false                 # include D/A
 
 [[sources]]
 type = "hn_hiring"
@@ -127,7 +146,7 @@ Each adapter's module docstring in `leadgen/sources/<type>.py` is the authoritat
 
 ## Enrichment steps
 
-Run by `leadgen enrich` (and `run`), in this order per lead. Each is skipped for leads that already have it,
+Run by `leadgen enrich` (and `run`), in this order per lead (`hunter` last, after scoring in `run`). Each is skipped for leads that already have it,
 unless `--refresh` is given.
 
 | Step | Config | Adds |
@@ -135,7 +154,8 @@ unless `--refresh` is given.
 | `site` | `[enrich] site` | Static crawl of the homepage plus up to `max_inner_pages` contact/about/team/legal pages, plain GETs only: emails, phones, socials, legal ids (ИНН with checksum, ОГРН, UK company number, EU VAT, DE Handelsregister), people (heuristic: verify before use), ~90 tech fingerprints, HTTPS, certificate, mobile viewport, forms, privacy link, cookie notice, copyright year, ATS job-board links. Signals: `no_website`, `outdated_site`, `no_https`, `broken_ssl`, `not_mobile_friendly`, `form_without_privacy_link`. |
 | `dns` | `[enrich] dns` | MX, SPF and DMARC via Cloudflare DNS-over-HTTPS: mail provider, sending tools in SPF, `emails[].verified = "mx"` (the domain accepts mail, not that the mailbox exists), `no_mx`. |
 | `jobs` | `[enrich] jobs` | Greenhouse, Lever and Ashby boards linked from the site, or guessed from the domain. A guessed board must prove it belongs to the company. Adds `jobs.open_roles` and a `hiring` signal. |
-| `registry` | `[enrich] registry` | `rkn`: the RU personal-data operator registry by ИНН (`not_in_pd_registry` signal). `companies_house`: UK company profile and officers (needs the key), with `new_registration` and `company_inactive` signals. |
+| `registry` | `[enrich] registry` | `rkn`: the RU personal-data operator registry by ИНН (`not_in_pd_registry` signal). `companies_house`: UK company profile and officers (needs the key), with `new_registration` and `company_inactive` signals. `opencorporates`: the same for any jurisdiction, by the id the `opencorporates` source sets or a UK company number (needs the token). A lookup runs only for leads that have its identifier. |
+| `hunter` | `[enrich] hunter` | Hunter.io domain search (needs `HUNTER_API_KEY`; costs credits): emails at the lead's domain with names and positions, the address pattern, Hunter's own verification (`verified = "smtp"` when valid). Runs only on leads already scored into `hunter_tiers`, so `leadgen run` does it after scoring, then re-scores. Personal emails are personal data: run the compliance checklist before outreach. |
 
 ## Browser-assisted sources (no adapter)
 

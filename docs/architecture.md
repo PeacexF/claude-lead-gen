@@ -13,7 +13,7 @@ brief.md + campaign.toml          (icp-builder, lead-sourcing, lead-scoring skil
         ▼
 leadgen collect   sources/*.py ──► raw/<source>/<date>/<unit>.jsonl     one cached file per unit
 leadgen merge     core/merge.py ──► leads.jsonl                        dedupe, normalize
-leadgen enrich    enrich/*.py   ──► leads.jsonl (site, dns, jobs, registry, signals)
+leadgen enrich    enrich/*.py   ──► leads.jsonl (site, dns, jobs, registry, hunter, signals)
 leadgen score     score.py      ──► leads.jsonl (score, score_breakdown, tier)
 leadgen export    core/store.py ──► leads.csv
         │
@@ -123,7 +123,8 @@ commands, which the main session reviews and runs.
   wins, user rules first). Budgets are converted to one currency with the configured rates. Supply shares per lead
   segment, and segment scores as weighted, max-normalized demand × gap × reach with the formula printed.
 - **Enrichment** (`leadgen/enrich/`): a thread pool over leads, with steps in order: site crawl → DNS/MX → job
-  boards → registries. DNS checks the emails the crawl found, and job boards use the links it found. Each step
+  boards → registries → Hunter (keyed, only on scored leads in `hunter_tiers`, so `run` does it after scoring).
+  DNS checks the emails the crawl found, and job boards use the links it found. Each step
   adds signals (`no_website`, `outdated_site`, `no_https`, `form_without_privacy_link`, `no_mx`, `hiring`, ...).
 - **Scoring** (`leadgen/score.py`): rules from `campaign.toml`, summed, with tiers from thresholds. Every lead
   carries its `score_breakdown`. No weights are learned or hidden.

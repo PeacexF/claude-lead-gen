@@ -122,6 +122,15 @@ class _PublicRedirects(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def strip_params(url: str, names: tuple[str, ...]) -> str:
+    """The URL without the named query parameters (e.g. an API token)."""
+    if not names:
+        return url
+    parts = urllib.parse.urlsplit(url)
+    q = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query, keep_blank_values=True) if k not in names]
+    return parts._replace(query=urllib.parse.urlencode(q)).geturl()
+
+
 class Fetcher:
     def __init__(self, cache_dir: pathlib.Path | None = None, delay: float = 1.0, ua: str = UA_BROWSER,
                  lang: str = "en", timeout: float = 25.0, host_delays: dict[str, float] | None = None,
@@ -156,9 +165,10 @@ class Fetcher:
     def _key(url: str, data: bytes | None, method: str | None) -> str:
         return json.dumps([method or ("POST" if data else "GET"), url, (data or b"").decode("utf-8", "replace")])
 
-    def forget(self, url: str, data: bytes | None = None, method: str | None = None) -> None:
-        """Drop a cached response, e.g. a captcha page, so a later run fetches it again."""
-        cp = self._cache_path(self._key(self.idna_url(url), data, method))
+    def forget(self, url: str, data: bytes | None = None, method: str | None = None,
+               secret_params: tuple[str, ...] = ()) -> None:
+        """Drop a cached response (a captcha page, a quota error) so a later run fetches it again."""
+        cp = self._cache_path(self._key(strip_params(self.idna_url(url), secret_params), data, method))
         if cp:
             cp.unlink(missing_ok=True)
 
@@ -189,7 +199,7 @@ class Fetcher:
     def request_verified(self, url: str, data: bytes | None = None, headers: dict | None = None,
                          method: str | None = None, cache: bool = True, ttl: float | None = None,
                          max_bytes: int = 5_000_000, html_only: bool = False, insecure_fallback: bool = False,
-                         public_only: bool | None = None) -> tuple[int, str, str, bool]:
+                         public_only: bool | None = None, secret_params: tuple[str, ...] = ()) -> tuple[int, str, str, bool]:
         """Return (status, final_url, text, verified); verified is False when the certificate check was skipped.
 
         public_only: refuse anything but http(s) to public addresses, including after redirects. Set it (here or
@@ -198,10 +208,14 @@ class Fetcher:
         insecure_fallback: retry without certificate verification after a certificate error. Only for reading public
         business pages (the crawler records the broken certificate as a finding). Never use it for API calls
         that carry keys or for anything that sends data.
+
+        secret_params: query parameters that carry a key (APIs that take it only in the URL). They are left out of
+        the cache key and of the final URL that is returned and cached, so the key never lands on disk.
         """
         url = self.idna_url(url)
         guard = self.public_only if public_only is None else public_only
-        cp = self._cache_path(self._key(url, data, method)) if cache else None
+        public_url = strip_params(url, secret_params)
+        cp = self._cache_path(self._key(public_url, data, method)) if cache else None
         if cp and cp.exists() and (ttl is None or time.time() - cp.stat().st_mtime < ttl):
             rec = json.loads(cp.read_text())
             verified = rec.get("verified", True)
@@ -213,8 +227,14 @@ class Fetcher:
         if guard:
             check_public(url)
         self._wait(host)
-        status, final, text, verified = self._do(url, data, hdrs, method, max_bytes, html_only,
-                                                 insecure_fallback and data is None, guard)
+        try:
+            status, final, text, verified = self._do(url, data, hdrs, method, max_bytes, html_only,
+                                                     insecure_fallback and data is None, guard)
+        except Blocked as e:
+            if secret_params:
+                raise Blocked(str(e).replace(url, public_url)) from None
+            raise
+        final = strip_params(final, secret_params)
         if cp and status < 500:
             cp.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp = tempfile.mkstemp(dir=cp.parent, prefix=".tmp-")  # atomic: workers may share a key
@@ -262,7 +282,7 @@ class Fetcher:
     def text(self, url: str, **kw) -> str:
         status, _, text = self.request(url, **kw)
         if status >= 400:
-            raise HTTPStatusError(url, status)
+            raise HTTPStatusError(strip_params(self.idna_url(url), kw.get("secret_params", ())), status)
         return text
 
     def json(self, url: str, **kw):

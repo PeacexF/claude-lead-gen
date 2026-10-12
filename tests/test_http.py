@@ -76,8 +76,8 @@ class _Resp:
         return False
 
 
-class CertFallbackTest(unittest.TestCase):
-    """A broken certificate is a finding (cert_ok False), not a dead site; a flaky handshake is not a broken cert."""
+class MockedOpenerCase(unittest.TestCase):
+    """Fetcher over a fake opener: verified attempts fail `verified_fails` times with `error()`, then pages load."""
 
     def setUp(self):
         import pathlib, ssl, tempfile, urllib.error, urllib.request
@@ -109,6 +109,10 @@ class CertFallbackTest(unittest.TestCase):
     def fetcher(self):
         return http.Fetcher(cache_dir=self.cache, delay=0)
 
+
+class CertFallbackTest(MockedOpenerCase):
+    """A broken certificate is a finding (cert_ok False), not a dead site; a flaky handshake is not a broken cert."""
+
     def test_without_fallback_the_ssl_error_surfaces(self):
         import ssl, urllib.error
         with self.assertRaises((ssl.SSLError, urllib.error.URLError)):
@@ -138,6 +142,28 @@ class CertFallbackTest(unittest.TestCase):
         self.verified_fails = 0
         self.assertIs(site.fetch(self.fetcher(), "https://ok.example/")[2], True)
         self.assertEqual(self.opens, [True])
+
+
+class SecretParamsTest(MockedOpenerCase):
+    """A key that must travel in the URL never reaches the cache or an error message."""
+
+    def test_token_not_on_disk(self):
+        self.verified_fails = 0
+        f = self.fetcher()
+        status, final, _ = f.request("https://api.example/v1/search?q=x&api_token=tok-SECRET", secret_params=("api_token",))
+        self.assertEqual(final, "https://api.example/v1/search?q=x")
+        blobs = [p.read_text() for p in self.cache.rglob("*") if p.is_file()]
+        self.assertTrue(blobs)
+        self.assertFalse(any("tok-SECRET" in b for b in blobs))
+        # a new token still hits the same cache entry; forget() finds it the same way
+        n = len(self.opens)
+        f.request("https://api.example/v1/search?q=x&api_token=other", secret_params=("api_token",))
+        self.assertEqual(len(self.opens), n)
+        f.forget("https://api.example/v1/search?q=x&api_token=other", secret_params=("api_token",))
+        self.assertFalse([p for p in self.cache.rglob("*") if p.is_file() and not p.name.startswith(".tmp")])
+
+    def test_strip_params(self):
+        self.assertEqual(http.strip_params("https://a.test/p?api_token=1&b=2", ("api_token",)), "https://a.test/p?b=2")
 
 
 def ssl_error():

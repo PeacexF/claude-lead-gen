@@ -34,6 +34,17 @@ limit = 500
 # limit = 60
 
 # [[sources]]
+# type = "sec_edgar"       # US, Form D = private companies that just raised money; needs SEC_EDGAR_UA (name + email)
+# forms = ["D"]
+# states = ["TX"]
+# days = 30
+
+# [[sources]]
+# type = "opencorporates"  # any jurisdiction, needs OPENCORPORATES_API_TOKEN (paid)
+# jurisdictions = ["gb"]
+# incorporated_from = "2026-07-01"
+
+# [[sources]]
 # type = "companies_house" # UK, needs COMPANIES_HOUSE_API_KEY (free)
 # sic_codes = ["62012"]
 # locations = ["Manchester"]
@@ -63,7 +74,9 @@ site = true                # crawl own website: contacts, socials, legal ids, te
 max_inner_pages = 4        # contact/about/team/legal pages per site
 dns = true                 # MX lookup: email deliverability + mail provider
 jobs = false               # check Greenhouse/Lever/Ashby boards by domain (hiring signal)
-registry = []              # "rkn" (RU, by ИНН), "companies_house" (UK, needs key)
+registry = []              # "rkn" (RU, by ИНН), "companies_house" (UK, needs key), "opencorporates" (token)
+hunter = false             # Hunter.io emails + named people at the domain (HUNTER_API_KEY; spends credits)
+hunter_tiers = ["A", "B"]  # only leads already scored into these tiers
 workers = 8
 
 # --- Scoring: transparent rules, summed. `leadgen score` prints the formula. ----------------------------------

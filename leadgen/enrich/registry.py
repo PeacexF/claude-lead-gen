@@ -5,6 +5,11 @@
   qualifier. Also gives the official operator name. Ported from claude-kit rkn_registry.py.
 - companies_house (UK, COMPANIES_HOUSE_API_KEY, free): company profile (status, incorporation date, SIC codes,
   registered address) and current officers, by company number → people with roles, new_registration signal.
+- opencorporates (global, OPENCORPORATES_API_TOKEN, paid): the same for any jurisdiction OpenCorporates covers, by
+  `registry_ids.opencorporates` ("gb/01234567", set by the opencorporates source) or a UK company number.
+
+A lookup runs only for leads that have its identifier (needs() asks has_id), so leads without one aren't re-queued
+on every run.
 
 Results land in lead["registry"][<name>]; each lookup is cached by the Fetcher, so re-runs cost nothing.
 """
@@ -25,8 +30,11 @@ RKN_URL = "https://pd.rkn.gov.ru/operators-registry/operators-list/?act=search&n
 CH_API = "https://api.company-information.service.gov.uk"
 CH_WEB = "https://find-and-update.company-information.service.gov.uk/company/{n}"
 
+OC_API = "https://api.opencorporates.com/v0.4"
+
 REGISTRIES = {"rkn": {"env": [], "about": "RU personal-data operator registry by ИНН"},
-              "companies_house": {"env": ["COMPANIES_HOUSE_API_KEY"], "about": "UK company profile + officers"}}
+              "companies_house": {"env": ["COMPANIES_HOUSE_API_KEY"], "about": "UK company profile + officers"},
+              "opencorporates": {"env": ["OPENCORPORATES_API_TOKEN"], "about": "company profile + officers, any jurisdiction"}}
 
 
 def _ids(lead: dict, key: str) -> list[str]:
@@ -113,7 +121,57 @@ def companies_house(fetcher, lead: dict) -> dict | None:
     return out
 
 
-LOOKUPS = {"rkn": rkn, "companies_house": companies_house}
+# --- OpenCorporates -----------------------------------------------------------------------------------------------
+def oc_ref(lead: dict) -> str | None:
+    """ "<jurisdiction>/<number>" for OpenCorporates: its own id, else a UK company number."""
+    ref = next(iter(_ids(lead, "opencorporates")), None)
+    if ref:
+        return ref
+    num = next(iter(_ids(lead, "company_number")), None)
+    return f"gb/{num.upper().zfill(8) if num.isdigit() else num.upper()}" if num else None
+
+
+def opencorporates(fetcher, lead: dict) -> dict | None:
+    from ..sources.opencorporates import get  # token handling lives with the source
+    ref = oc_ref(lead)
+    if not ref:
+        return None
+    jur, _, num = ref.partition("/")
+    c = (get(fetcher, f"companies/{urllib.parse.quote(jur)}/{urllib.parse.quote(num)}", {}).get("results") or {}).get("company")
+    today = datetime.date.today()
+    if not c:
+        return {"checked": today.isoformat(), "ref": ref, "found": False}
+    officers = [o.get("officer") or {} for o in c.get("officers") or []]
+    officers = [o for o in officers if o.get("name") and not o.get("end_date")]
+    out = {
+        "checked": today.isoformat(), "found": True, "ref": ref, "url": c.get("opencorporates_url"),
+        "name": c.get("name"), "status": c.get("current_status"), "type": c.get("company_type"),
+        "incorporated": c.get("incorporation_date"), "address": c.get("registered_address_in_full"),
+        "industry": [f"{(i.get('industry_code') or {}).get('code')} {(i.get('industry_code') or {}).get('description') or ''}".strip()
+                     for i in c.get("industry_codes") or [] if (i.get("industry_code") or {}).get("code")],
+        "officers": [{"name": o["name"], "role": o.get("position"), "appointed": o.get("start_date")} for o in officers[:10]],
+    }
+    legal = lead.setdefault("legal", {"name": None, "registry_ids": {}})
+    legal["name"] = out["name"] or legal.get("name")
+    have = {p.get("name") for p in lead.get("people") or []}
+    for o in out["officers"]:
+        if o["name"] not in have:
+            lead.setdefault("people", []).append({"name": o["name"], "role": o["role"], "source": out["url"]})
+    inc = out["incorporated"]
+    if inc and inc >= (today - datetime.timedelta(days=365)).isoformat():
+        schema.add_signal(lead, "new_registration", inc, out["url"], inc)
+    if out["status"] and out["status"].lower() not in ("active", "live", "registered", "good standing"):
+        schema.add_signal(lead, "company_inactive", out["status"], out["url"])
+    return out
+
+
+LOOKUPS = {"rkn": rkn, "companies_house": companies_house, "opencorporates": opencorporates}
+IDS = {"rkn": lambda l: _ids(l, "inn"), "companies_house": lambda l: _ids(l, "company_number"),
+       "opencorporates": lambda l: [r for r in [oc_ref(l)] if r]}
+
+
+def has_id(name: str, lead: dict) -> bool:
+    return bool(IDS[name](lead))
 
 
 def missing_env(name: str) -> list[str]:

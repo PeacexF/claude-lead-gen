@@ -25,7 +25,7 @@ from .outreach import send as sending
 from .outreach.suppression import Suppression
 
 LEAD_STATUSES = ["new", "drafted", "sent", "replied", "won", "lost", "suppressed"]
-KEY_ENV = ["GOOGLE_PLACES_API_KEY", "COMPANIES_HOUSE_API_KEY", "OPENCORPORATES_API_TOKEN", "HUNTER_API_KEY",
+KEY_ENV = ["GOOGLE_PLACES_API_KEY", "COMPANIES_HOUSE_API_KEY", "OPENCORPORATES_API_TOKEN", "HUNTER_API_KEY", "SEC_EDGAR_UA",
            "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM"]
 
 
@@ -234,11 +234,17 @@ def cmd_run(args):
     text.append(f"merge: {res['merge']['raw_rows']} raw rows -> {res['merge']['leads']} leads")
     if not res["merge"]["leads"]:
         return res, "\n".join(text + ["no leads; check [[sources]] in campaign.toml and the collect output above"])
-    steps = csv_list(args.steps) if args.steps is not None else None
-    res["enrich"] = enrich.run(camp, steps, log=log)
+    steps = csv_list(args.steps) if args.steps is not None else enrich.configured_steps(camp.config)
+    res["enrich"] = enrich.run(camp, [s for s in steps if s != "hunter"], log=log)
     text.append(fmt_enrich(res["enrich"]))
     res["score"] = do_score(camp)
     text.append(fmt_score(res["score"]))
+    if "hunter" in steps:  # it picks leads by tier, so it goes after scoring; re-score with what it found
+        res["hunter"] = enrich.run(camp, ["hunter"], log=log)
+        text.append(fmt_enrich(res["hunter"]))
+        if res["hunter"]["stats"]["hunter"]["done"]:
+            res["score"] = do_score(camp)
+            text.append(fmt_score(res["score"]))
     res["export"] = do_export(camp)
     text.append(f"export: {res['export']['rows']} leads -> {res['export']['path']}")
     return res, "\n\n".join(text)
@@ -259,7 +265,8 @@ def cmd_status(args):
     enriched = {"site": count(lambda l: (l.get("site") or {}).get("checked")),
                 "dns": count(lambda l: (l.get("dns") or {}).get("checked")),
                 "jobs": count(lambda l: (l.get("jobs") or {}).get("checked")),
-                "registry": count(lambda l: l.get("registry"))}
+                "registry": count(lambda l: l.get("registry")),
+                "hunter": count(lambda l: (l.get("hunter") or {}).get("checked"))}
     ds = drafting.Drafts(camp.outreach_dir / "drafts.jsonl").rows.values()
     sent = list(read_jsonl(camp.outreach_dir / "sent.jsonl"))
     today = sending.now().date().isoformat()

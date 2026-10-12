@@ -28,7 +28,8 @@ TEMPLATES = PLUGIN_ROOT / "templates"
 DEFAULTS: dict = {
     "campaign": {"name": "", "offer": "", "language": "en", "country": "", "default_phone_cc": ""},
     "sources": [],
-    "enrich": {"site": True, "max_inner_pages": 4, "dns": True, "jobs": False, "registry": [], "workers": 8},
+    "enrich": {"site": True, "max_inner_pages": 4, "dns": True, "jobs": False, "registry": [], "hunter": False,
+               "hunter_tiers": ["A", "B"], "hunter_limit": 10, "workers": 8},
     "scoring": {"rules": [], "tiers": {"A": 60, "B": 40, "C": 20}},
     "outreach": {"send_mode": "off", "daily_cap": 30, "per_domain_cap": 1, "channels": ["email"],
                  "compliance": "", "sender_name": "", "sender_company": "", "sender_address": "",

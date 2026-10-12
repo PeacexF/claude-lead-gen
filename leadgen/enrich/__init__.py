@@ -1,7 +1,7 @@
-"""Enrichment runner: site crawl → DNS/MX → job boards → registries, in parallel across leads.
+"""Enrichment runner: site crawl → DNS/MX → job boards → registries → Hunter, in parallel across leads.
 
 Steps per lead run in that order (DNS checks the emails the crawl found; jobs use the board links it found).
-A lead is skipped for a step it already has (site.checked, dns.checked, jobs.checked, registry.<name>) unless
+A lead is skipped for a step it already has (site.checked, dns.checked, jobs.checked, registry.<name>, hunter.checked) unless
 refresh is set, so an interrupted run resumes where it stopped. leads.jsonl is checkpointed as results come in.
 A Blocked error turns that step off for the rest of the run.
 """
@@ -17,9 +17,9 @@ from ..core import schema
 from ..core.campaign import Campaign
 from ..core.http import Blocked, UA_BOT
 from ..core.store import read_jsonl, write_jsonl
-from . import dns, jobs, registry, site
+from . import dns, hunter, jobs, registry, site
 
-STEPS = ["site", "dns", "jobs", "registry"]
+STEPS = ["site", "dns", "jobs", "registry", "hunter"]
 CHECKPOINT_EVERY = 25
 
 
@@ -35,9 +35,12 @@ def needs(lead: dict, step: str, cfg: dict, refresh: bool = False) -> bool:
         return bool(lead.get("domain") or lead.get("emails")) and (refresh or not (lead.get("dns") or {}).get("checked"))
     if step == "jobs":
         return bool(lead.get("domain") or lead.get("name")) and (refresh or not (lead.get("jobs") or {}).get("checked"))
+    if step == "hunter":  # spends credits: only scored leads in hunter_tiers, only with a key
+        return hunter.ready() and hunter.wanted(lead, cfg) and (refresh or not (lead.get("hunter") or {}).get("checked"))
     if step == "registry":
         done = lead.get("registry") or {}
-        return any(refresh or n not in done for n in cfg["enrich"].get("registry") or [] if not registry.missing_env(n))
+        return any((refresh or n not in done) and registry.has_id(n, lead)
+                   for n in cfg["enrich"].get("registry") or [] if not registry.missing_env(n))
     raise KeyError(step)
 
 
@@ -54,6 +57,7 @@ class Runner:
             "dns": camp.fetcher(ua=UA_BOT, delay=0.05, timeout=15),
             "jobs": camp.fetcher(ua=UA_BOT, delay=0.3, timeout=20),
             "registry": camp.fetcher(delay=2.0, timeout=30),
+            "hunter": camp.fetcher(ua=UA_BOT, delay=0.2, timeout=20),
         }
         self.stats = {s: {"done": 0, "failed": 0} for s in steps}
 
@@ -78,6 +82,8 @@ class Runner:
                     jobs.enrich(self.fetchers["jobs"], lead)
                 elif step == "registry":
                     registry.enrich(self.fetchers["registry"], lead, self.cfg["enrich"].get("registry") or [])
+                elif step == "hunter":
+                    hunter.enrich(self.fetchers["hunter"], lead, int(self.cfg["enrich"].get("hunter_limit", 10)))
                 with self.lock:
                     self.stats[step]["done"] += 1
             except Blocked as e:
