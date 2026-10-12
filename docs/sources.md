@@ -80,6 +80,7 @@ query = ""                         # EDGAR full-text search words (optional)
 states = ["TX", "CA"]              # business-address states; empty = all
 days = 30                          # or filed_from / filed_to = "YYYY-MM-DD"
 limit = 200                        # companies per state
+skip_industries = ["Pooled Investment Fund"]  # Form D industry groups to leave out ([] keeps all)
 amendments = false                 # include D/A
 
 [[sources]]

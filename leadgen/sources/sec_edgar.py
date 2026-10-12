@@ -13,9 +13,11 @@ contact-discovery skill before the site crawl can run.
 The SEC requires a User-Agent that names you and gives a contact email ("Jane Doe jane@example.com"):
 set SEC_EDGAR_UA. Fair access is 10 requests/second; the adapter stays well below it.
 
-spec: {type="sec_edgar", forms=["D"], query="", states=["TX", "CA"], days=30, limit=200, amendments=false}
+spec: {type="sec_edgar", forms=["D"], query="", states=["TX", "CA"], days=30, limit=200, amendments=false,
+       skip_industries=["Pooled Investment Fund"]}
   query: EDGAR full-text search words ("software", "\"dental practice\""); empty = every filing of the form.
   states: business-address states (two-letter codes); empty = all. filed_from / filed_to (YYYY-MM-DD) override days.
+  skip_industries: Form D industry groups left out. Funds raise money too, but they don't buy services; [] keeps all.
 """
 from __future__ import annotations
 
@@ -47,7 +49,8 @@ def _dates(spec: dict) -> tuple[str, str]:
 def units(spec: dict) -> list[dict]:
     frm, to = _dates(spec)
     base = {"forms": ",".join(spec.get("forms") or ["D"]), "query": spec.get("query", ""), "from": frm, "to": to,
-            "limit": int(spec.get("limit", 200)), "amendments": bool(spec.get("amendments", False))}
+            "limit": int(spec.get("limit", 200)), "amendments": bool(spec.get("amendments", False)),
+            "skip": list(spec.get("skip_industries", ["Pooled Investment Fund"]))}
     return [{**base, "state": s} for s in spec.get("states") or [""]]
 
 
@@ -98,6 +101,12 @@ def _money(v: str | None) -> str | None:
     return None if v is None else (f"${int(v):,}" if v.isdigit() else v)
 
 
+def _phone(raw: str | None, us: bool = True) -> list[str]:
+    """EDGAR phones are bare digits; a 10-digit US number gets +1 so merge reads it as international."""
+    d = re.sub(r"\D", "", raw or "")
+    return [f"+1{d}" if us and len(d) == 10 else raw] if d else []
+
+
 def _place(street: str | None, city: str | None, state: str | None, zipc: str | None) -> str | None:
     return ", ".join(x for x in (street, city, " ".join(y for y in (state, zipc) if y)) if x) or None
 
@@ -134,7 +143,7 @@ def form_d(xml: str, f: dict) -> dict:
         "source_id": f["cik"], "url": COMPANY.format(cik=f["cik"]), "name": name,
         "address": _place(_t(addr, "street1"), city, _t(addr, "stateOrCountry"), _t(addr, "zipCode")),
         "city": city.title() if city and city.isupper() else city, "country": "US",
-        "phones": [p for p in [_t(iss, "issuerPhoneNumber")] if p],
+        "phones": _phone(_t(iss, "issuerPhoneNumber"), (_t(addr, "stateOrCountry") or "").isalpha()),
         "categories": [c for c in [industry] if c], "segment": industry,
         "legal": {"name": name, "registry_ids": {"cik": f["cik"]}},
         "people": people,
@@ -154,7 +163,8 @@ def submissions(data: dict, f: dict) -> dict:
         "address": _place(a.get("street1"), city, a.get("stateOrCountry"), a.get("zipCode")),
         "city": city.title() if city and city.isupper() else city,
         "country": "US" if not a.get("isForeignLocation") else a.get("countryCode"),
-        "phones": [p for p in [data.get("phone")] if p], "sites": [w for w in [data.get("website")] if w],
+        "phones": _phone(data.get("phone"), not a.get("isForeignLocation")),
+        "sites": [w for w in [data.get("website")] if w],
         "categories": [c for c in [data.get("sicDescription")] if c], "segment": data.get("sicDescription"),
         "legal": {"name": name, "registry_ids": {"cik": f["cik"]}},
         "signals": [{"type": "sec_filing", "value": f"{f['form']} filed {f['filed']}",
@@ -182,7 +192,10 @@ def collect_unit(ctx, unit: dict) -> list[dict]:
         try:
             if f["form"] in ("D", "D/A") and f["file"].endswith(".xml"):
                 xml = ctx.fetcher.text(ARCHIVES.format(cik=f["cik"], adsh=f["adsh"].replace("-", ""), file=f["file"]))
-                rows.append(form_d(xml, f))
+                r = form_d(xml, f)
+                if r["segment"] in unit.get("skip", []):
+                    continue
+                rows.append(r)
             else:
                 rows.append(submissions(ctx.fetcher.json(SUBMISSIONS.format(cik10=f["cik"].zfill(10))), f))
         except (ET.ParseError, ValueError, RuntimeError) as e:

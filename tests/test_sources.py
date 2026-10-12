@@ -188,7 +188,7 @@ def efts(*hits, total=None):
 
 class SecEdgarTest(unittest.TestCase):
     UNIT = {"forms": "D", "query": "", "from": "2026-10-01", "to": "2026-10-10", "limit": 50, "amendments": False,
-            "state": "TX"}
+            "state": "TX", "skip": ["Pooled Investment Fund"]}
 
     def test_search_url_filters_by_business_state(self):
         u = sec_edgar.search_url(self.UNIT, 100)
@@ -201,7 +201,7 @@ class SecEdgarTest(unittest.TestCase):
              "filed": "2026-10-09", "name": "x"}
         r = sec_edgar.form_d(FORM_D, f)
         self.assertEqual((r["name"], r["city"], r["phones"], r["country"]), ("Example Robotics, Inc.", "Austin",
-                                                                            ["5125550100"], "US"))
+                                                                            ["+15125550100"], "US"))
         self.assertEqual(r["legal"]["registry_ids"], {"cik": "9990001"})
         self.assertEqual(r["people"][0]["name"], "Ada Example")
         self.assertEqual(r["people"][0]["role"], "Executive Officer, Director")
@@ -223,6 +223,9 @@ class SecEdgarTest(unittest.TestCase):
         rows = sec_edgar.collect_unit(mock.Mock(fetcher=f, log=lambda m: None), self.UNIT)
         self.assertEqual([r["source_id"] for r in rows], ["9990001"])
         self.assertIn("/9990001/000999000126000002/primary_doc.xml", rows[0]["signals"][0]["source"])  # newest filing
+        f.routes["https://www.sec.gov/Archives/edgar/data/9990001/"] = FORM_D.replace("Other Technology", "Pooled Investment Fund")
+        fund = sec_edgar.collect_unit(mock.Mock(fetcher=f, log=lambda m: None), self.UNIT)
+        self.assertEqual(fund, [])  # funds are skipped by default
 
 
 class OpenCorporatesTest(unittest.TestCase):

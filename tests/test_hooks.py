@@ -1,10 +1,12 @@
 import importlib.util
 import json
+import os
 import pathlib
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HOOK = pathlib.Path(__file__).resolve().parents[1] / "hooks" / "guard.py"
 spec = importlib.util.spec_from_file_location("guard", HOOK)
@@ -14,6 +16,10 @@ spec.loader.exec_module(guard)
 
 class GuardTest(unittest.TestCase):
     def setUp(self):
+        env = mock.patch.dict(os.environ)  # the guard falls back to $LEADGEN_HOME: a real one must not leak in
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("LEADGEN_HOME", None)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = pathlib.Path(self.tmp.name)
