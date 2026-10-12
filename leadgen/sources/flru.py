@@ -8,7 +8,7 @@ from __future__ import annotations
 import html as htmllib
 import re
 
-from ..core.http import HTTPStatusError
+from ..core.http import Blocked, HTTPStatusError
 from . import LayoutChanged
 
 NAME = "flru"
@@ -74,6 +74,9 @@ def collect_unit(ctx, unit: dict) -> list[dict]:
                 break
             raise
         if page == 1 and 'qa-project-name="project-item' not in h:
+            ctx.fetcher.forget(f"https://www.fl.ru/projects/page-{page}/")  # don't replay a wall for 20 h
+            if len(h) < 50_000:  # FL.ru's stub page ("Free-lance.ru", ~14 KB) is a block, not a new layout
+                raise Blocked("fl.ru served a stub page instead of the project list; re-run later")
             raise LayoutChanged("no project-item blocks on fl.ru/projects page 1")
         new = [r for r in parse(h) if r["source_id"] not in seen]
         if not new:

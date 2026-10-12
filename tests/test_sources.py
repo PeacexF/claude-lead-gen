@@ -10,7 +10,7 @@ from unittest import mock
 
 from leadgen import cli, sources
 from leadgen.core.http import Blocked
-from leadgen.sources import LayoutChanged, hn_hiring, opencorporates, sec_edgar, twogis
+from leadgen.sources import LayoutChanged, flru, hn_hiring, opencorporates, sec_edgar, twogis
 from leadgen.core.campaign import PLUGIN_ROOT, Campaign
 from tests.fakes import FakeFetcher
 
@@ -260,6 +260,17 @@ class OpenCorporatesTest(unittest.TestCase):
             opencorporates.get(f, "companies/search", {"q": "x"})
         self.assertNotIn("tok-SECRET", str(e.exception))
         self.assertEqual(len(f.forgotten), 1)
+
+
+class FlruWallTest(unittest.TestCase):
+    def test_stub_page_is_a_block_and_leaves_the_cache(self):
+        f = FakeFetcher({"https://www.fl.ru/projects/page-1/": "<html><title>Free-lance.ru</title></html>"})
+        with self.assertRaises(Blocked):
+            flru.collect_unit(mock.Mock(fetcher=f), {"max_pages": 3})
+        self.assertEqual(f.forgotten, ["https://www.fl.ru/projects/page-1/"])
+        f = FakeFetcher({"https://www.fl.ru/projects/page-1/": "<html>" + " " * 60_000 + "</html>"})
+        with self.assertRaises(LayoutChanged):
+            flru.collect_unit(mock.Mock(fetcher=f), {"max_pages": 3})
 
 
 class SourcesTest(unittest.TestCase):
