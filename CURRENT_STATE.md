@@ -1,6 +1,6 @@
-# Current state — 2026-10-09
+# Current state — 2026-10-12
 
-Milestones 1–6 of [SPEC.md](SPEC.md) §11 are done, plus the CLI, hooks, CI, skills, agents, commands, docs and niche research; the remaining live smoke tests are next. This file says what
+Milestones 1–8 of [SPEC.md](SPEC.md) §11 are done, plus niche research. Milestone 9 (live smoke tests) is done for every free and free-key source; what's left needs paid keys or a real SMTP account. This file says what
 exists, what was verified, and the exact next steps, so the next session can pick up without re-deriving anything.
 
 ## Done
@@ -9,11 +9,11 @@ exists, what was verified, and the exact next steps, so the next session can pic
 |---|---|
 | 1. Spec + plugin scaffold | **Done.** `SPEC.md`; `.claude-plugin/plugin.json` (plugin `leadgen`) and `marketplace.json` (marketplace `claude-lead-gen`), both passing `claude plugin validate`. `.mcp.json` bundles Playwright MCP. `providers/{firecrawl,exa,brave,tavily,apify}` are opt-in plugins that ask for their key via `userConfig` (sensitive). Every npx package is pinned to an exact version. |
 | 2. Core package | **Done.** `leadgen/core/`: `http.py` (per-host throttle, disk cache, `Blocked` on 429/captcha; TLS fallback is opt-in and used only by the crawler, never for keyed APIs), `schema.py` (domain/phone/email normalization, own-site test, social patterns, lead skeleton), `campaign.py` (workspace + campaign layout, TOML config with defaults, `Campaign.create` also gitignores campaign data), `store.py` (atomic JSONL, flat CSV export), `merge.py` (union-find dedup on domain → phone → name+city; keeps enrichment/score/status across re-merges). |
-| 3. Sources | **Code done, mostly untested end to end.** `leadgen/sources/__init__.py` is the runner (one cached raw file per unit; skips collected units; `SNAPSHOT` sources refresh daily; `Blocked` stops a source). Adapters: `osm`, `google_places`*, `companies_house`*, `hn_hiring`, `file`, `yandex_maps`, `twogis`, `telegram`, `kwork`, `kwork_gigs`, `flru`, `pchel`, `workspace_ru` (* = needs API key). The RU adapters are ports of claude-kit collectors; `tools/parser-2gis-headless.patch` is copied over. |
-| 4. Enrichment | **Done.** `enrich/site.py` (crawl: contacts, socials, legal ids, people, tech, site health, ATS job-board links), `enrich/tech.py` (~90 fingerprints), `enrich/dns.py` (MX/SPF/DMARC via DoH → mail provider, sending tools, `emails[].verified="mx"`, `no_mx`), `enrich/jobs.py` (Greenhouse/Lever/Ashby; guessed board tokens must prove ownership), `enrich/registry.py` (RKN by ИНН; Companies House profile + officers, keyed), `enrich/__init__.py` (thread-pool runner, per-step resume, checkpoints every 25 leads, `Blocked` turns a step off, `no_website` signal). Lead gets extra blocks `dns`, `jobs`, `registry` beyond §4.2. |
+| 3. Sources | **Done; every free and free-key adapter run live.** `leadgen/sources/__init__.py` is the runner (one cached raw file per unit; skips collected units; `SNAPSHOT` sources refresh daily; `Blocked` stops a source). Adapters: `osm`, `google_places`*, `companies_house`*, `opencorporates`*, `sec_edgar`†, `hn_hiring`, `file`, `yandex_maps`, `twogis`, `telegram`, `kwork`, `kwork_gigs`, `flru`, `pchel`, `workspace_ru` (* = needs API key, † = needs `SEC_EDGAR_UA`, a name + contact email). The RU adapters are ports of claude-kit collectors. **2026-10-12:** `twogis` reads 2GIS's server-rendered state over plain HTTP (ported from pdn-lead): search pages (12 per page) + one firm page per organisation. parser-2gis, its patch and `leadgen setup 2gis` are gone (Chrome took over the screen). `sec_edgar`: EDGAR full-text search; Form D by default (just raised money: phone, executives, amounts, `funding` signal), funds skipped. `opencorporates`: company search by jurisdiction/industry/incorporation date. Data-source plan for other markets: [docs/plans/data-sources.md](docs/plans/data-sources.md). |
+| 4. Enrichment | **Done.** `enrich/site.py` (crawl: contacts, socials, legal ids, people, tech, site health, ATS job-board links), `enrich/tech.py` (~90 fingerprints), `enrich/dns.py` (MX/SPF/DMARC via DoH → mail provider, sending tools, `emails[].verified="mx"`, `no_mx`), `enrich/jobs.py` (Greenhouse/Lever/Ashby; guessed board tokens must prove ownership), `enrich/registry.py` (RKN by ИНН; Companies House profile + officers, keyed; OpenCorporates profile + officers, keyed; a lookup runs only for leads with its identifier), `enrich/hunter.py` (2026-10-12: Hunter.io domain search → emails, people, pattern; credits, so only on leads scored into `hunter_tiers`; `run` does it after scoring and re-scores), `enrich/__init__.py` (thread-pool runner, per-step resume, checkpoints every 25 leads, `Blocked` turns a step off, `no_website` signal). Lead gets extra blocks `dns`, `jobs`, `registry`, `hunter` beyond §4.2. Site crawl: a broken certificate is `cert_ok = false` + `broken_ssl` (fixed 2026-10-12; before, such sites were recorded as unreachable). |
 | 5. Scoring | **`leadgen/score.py` done** (ops over dotted paths, signal/tech/category, negative points, `disqualify`, tiers, formula). `export`/`run`/`status` wait for the CLI. |
 | 6. Outreach | **Done.** `outreach/drafts.py` (store, validation: evidence `[{fact, source}]` required, deep links), `outreach/suppression.py`, `outreach/compliance.py` (profiles can-spam/gdpr/uk-pecr/casl/ru → required fields, footer; `ru` needs `ru_consent = true`), `outreach/send.py` (off/confirm/auto, batches with content hashes + 24 h expiry, caps, idempotent `sent.jsonl`, follow-ups after `followup_days`, threading headers, SMTP from env). |
-| CLI | **Done (2026-10-08); `market` added 2026-10-09** (see Niche research). `leadgen lead <slug> <id>` prints one lead; `leadgen inspect` checks raw data. `leadgen/cli.py` + `bin/leadgen` (bash wrapper, resolves symlinks, needs Python ≥ 3.11, runs `python -P` so files in the workspace can't shadow modules) + `python -m leadgen`. Commands: `init, sources, collect, merge, enrich, score, export, run, status, mark, drafts add/list/show, send, suppress, doctor, setup 2gis`; `--json` on every command (result on stdout, progress on stderr). Exit codes: 1 error, 2 usage, 3 send refused. `drafts add` moves leads new → drafted; `mark … suppressed` also adds the lead's domain (else its emails/phones) to `suppression.txt`. |
+| CLI | **Done (2026-10-08); `market` added 2026-10-09** (see Niche research). `leadgen lead <slug> <id>` prints one lead; `leadgen inspect` checks raw data. `leadgen/cli.py` + `bin/leadgen` (bash wrapper, resolves symlinks, needs Python ≥ 3.11, runs `python -P` so files in the workspace can't shadow modules) + `python -m leadgen`. Commands: `init, sources, collect, merge, enrich, score, export, run, status, mark, drafts add/list/show, send, suppress, doctor, market`; `--json` on every command (result on stdout, progress on stderr). Exit codes: 1 error, 2 usage, 3 send refused. `drafts add` moves leads new → drafted; `mark … suppressed` also adds the lead's domain (else its emails/phones) to `suppression.txt`. |
 | parser-builder | **Done (2026-10-08).** `skills/parser-builder/SKILL.md` + `references/patterns.md`: guidebook for building a parser (source adapter) for one specific source. Core: workspace adapters (`<workspace>/leadgen_sources/<name>.py`; loaded only when the campaign's `[[sources]]` names them, never to list them; path logged on load), `sources.LayoutChanged` (unit fails loudly; two in a row stop the source; kwork/flru raise it), `leadgen inspect` (fill rate per field, samples, duplicate ids), `templates/source.py` (tested as a working adapter). Plan: `docs/plans/parser-builder-skill.md`. |
 | Hooks | **Done (2026-10-08).** `hooks/hooks.json` → `hooks/guard.py` (PreToolUse/Bash). Send gate: **ask** on `leadgen send --approve` and when the campaign/send_mode can't be read; dry runs, confirm previews, `auto` and `off` pass through. PII guard: **deny** `git add` of `campaigns/`, `suppression.txt`, `*.leads.*`, `leadgen_sources/*_fixtures/`, and `git add -f` on broad paths. Never answers allow (a chained command could ride on it). Follows `cd` and `LEADGEN_HOME=` in the command. Hardened after review (2026-10-08): argparse abbreviations (`--appr`; the CLI now sets `allow_abbrev=False`), sends chained with other commands, `$(…)`/`sh -c`/`python -c` indirection (raw-text fallback), Bash writes to `campaign.toml`, case-insensitive paths, pathspec magic/globs and `--pathspec-from-file` with `-f`, ignore-rule edits in the same command; Edit/Write that set `send_mode = "auto"` or drop ignore entries ask. **Limit:** a guardrail, not a sandbox: Bash can always reach SMTP or git another way. |
 | CI | **Done (2026-10-08).** `.github/workflows/ci.yml`: unittest + CLI smoke on Python 3.11–3.14; `claude plugin validate` (Claude Code pinned 2.1.293, no auth needed) on the marketplace, plugin, and providers. |
@@ -33,7 +33,7 @@ exists, what was verified, and the exact next steps, so the next session can pic
 - Smoke tests: merge collapses the same domain across sources; INN checksum; tech detection; a live crawl of
   a real site found WordPress/WooCommerce/GTM/CF7/CookieYes.
 - Live (2026-10-07): MX/provider for real domains, Greenhouse/Ashby boards (and a common-token guess correctly rejected), RKN lookup, crawl through the SSRF-guarded opener.
-- `python3 -m unittest`: 72 offline tests (CI runs them on Python 3.11–3.14) (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
+- `python3 -m unittest`: 97 offline tests (72 until 2026-10-09) (CI runs them on Python 3.11–3.14) (http guard, store/CSV, crawl/dns/jobs/registry with fixtures, scoring, outreach send gating,
   merge, CLI end to end on the `file` source, workspace adapters, LayoutChanged, the source template, hook decisions, market tables).
 - **Live end to end (2026-10-08):** `bin/leadgen run` on OSM dentists in Coimbra (limit 10): 10 leads, 5 sites crawled, MX checked,
   tiers A3/C4/D3, CSV exported; re-run fully cached (0.1 s, 0 leads re-enriched). Drafts/send not run live (no SMTP).
@@ -61,17 +61,34 @@ exists, what was verified, and the exact next steps, so the next session can pic
   unrelated words, hence the skill's "read before you count" rule. Plugin load checked with `claude -p --plugin-dir .`:
   `leadgen:niche-research`, `leadgen:market-scanner`, `/leadgen:niches`.
 
+- **Live 2026-10-12:**
+  - Certificates: `expired`, `wrong.host`, `untrusted-root.badssl.com` → reachable, `cert_ok = false` (also from the
+    cache on a re-run); `badssl.com`, `example.com` → `true`. A TLS handshake failure no longer counts as a broken cert.
+  - `twogis` over plain HTTP (Kostroma, стоматология, limit 30): 30 rows in 34 s, no browser; 20 leads after merge,
+    20 with a phone, 16 with an email after the crawl. 2GIS sends an old Chrome UA (130) to `/museum`; `UA_BROWSER` is
+    now Chrome 154, and that redirect raises `LayoutChanged` naming the fix.
+  - `companies_house` (SIC 62012, Manchester, incorporated since 2026-09-01, limit 20) + registry step: 20 leads, 20
+    found, 20 with officers, `new_registration` on all; 80 s (registry delay 2 s × 2 calls per company).
+  - `sec_edgar` (Form D, TX, 14 days, limit 15): 15 leads, all with a phone and a `funding` signal, 38 named people,
+    no websites. The run added `+1` to bare US phones and the default skip of pooled investment funds (15 → 13).
+
 ## Not started
 
-1. **Live smoke test:** OSM, HN + `jobs`, Yandex Maps + RKN, and the send path are done (see Verified). Still to run:
-   `leadgen setup 2gis` + the `twogis` source on a clean machine (opens Chrome), `companies_house` (needs a key), and a send
-   through a real provider's SMTP to an inbox the owner controls.
+1. **Live smoke test:** done for every free and free-key source (see Verified). Still to run, each waiting on the owner:
+   a send through a real provider's SMTP to an inbox the owner controls (skipped 2026-10-12 by the owner's choice);
+   `opencorporates` (paid token) and the `hunter` step (`HUNTER_API_KEY`), both built from their API references and
+   tested only on synthetic responses. Keys for live checks live in `~/.config/leadgen/live.env` (chmod 600, outside
+   the repo); load it with `set -a; . ~/.config/leadgen/live.env; set +a`, and quote values that contain spaces.
 2. **Niche research, live:** the first live study ran 2026-10-09 (demand only, one snapshot, stopped early with a
    verdict; the record is in the gitignored `private/runs/`). Still to run end to end: supply scan + segment scores,
    `market-scanner` rounds, a niche card with a fact-checker pass. Local research records go in `private/`
-   (gitignored), never in tracked files.
-3. **Demand outside RU/CIS:** only `telegram` is market-agnostic. A demand adapter for a public order or tender board
-   of another market (built with `parser-builder`) would make niche studies work there too.
+   (gitignored), never in tracked files. 2026-10-10: supply scan, round 2 and card 01 ran (see `private/runs/`).
+   **2026-10-12: the owner dropped card 01** (confirmed-interest intros): too little income for the time spent
+   (≈ 4–5 h of manual outreach per intro). No candidate is open. Rule for later rounds: work out income per hour of
+   the seller's time early, and drop niches that need manual work per sale unless that figure is high.
+3. **Demand outside RU/CIS:** only `telegram` is market-agnostic. The probed candidates and the order to build them are
+   in [docs/plans/data-sources.md](docs/plans/data-sources.md): Freelancer.com's public project API first (budgets, bid
+   counts, skills), then the HN freelancer thread, FR/NO/FI registries, UK tenders (OCDS) and EU TED.
 
 ## Security findings (fixed 2026-10-07)
 1. **CSV formula injection** in `store.write_csv`: string cells starting with `= + - @ \t \r` get a `'` prefix
@@ -84,8 +101,11 @@ exists, what was verified, and the exact next steps, so the next session can pic
 ## Known issues / notes
 - `.gitignore` has entries from the original template (`main`, `server`, `collector`, `context*`) that could
   shadow future paths with those names. Nothing uses them yet; review before adding such paths.
-- `leadgen setup 2gis` installs parser-2gis under `$LEADGEN_TOOLS` or `~/.local/share/leadgen/tools` (outside the plugin dir,
-  so plugin updates don't wipe it). Written but not yet run on a clean machine.
+- `UA_BROWSER` (`core/http.py`) must name a current Chrome: 2GIS redirects outdated browsers to `/museum`. Bump it when
+  `twogis` raises that `LayoutChanged`.
+- `yandex_maps` would cache a captcha page like any page (only `twogis` drops walls from the cache via
+  `Fetcher.forget`). Left as is by the owner's call (2026-10-12): Yandex hasn't served captchas in these runs.
+- The registry step's 2 s delay is per Fetcher, so Companies House lookups take ~4 s per company (2 calls).
 - Fixed 2026-10-08: re-merging dropped the `dns`/`jobs`/`registry` blocks and reset `emails[].verified`, so every
   `leadgen run` redid those lookups (`tests/test_merge.py`). Any new enrichment block must be added to the carry-over
   list in `merge.merge`.
@@ -94,11 +114,13 @@ exists, what was verified, and the exact next steps, so the next session can pic
   give junk names. They have no domain, so they score low, but they're noise in the list.
 - The crawl collects every ОГРН on a site's pages, so requisites that also list the bank's or a licensor's give several
   `legal.registry_ids.ogrn` values. The ИНН list has the same risk, but it was single-valued in the live run.
-- SEC EDGAR returned 403 without a contact User-Agent, so it was left out of v1 sources. It needs a UA with an email if added.
+- SEC EDGAR needs a User-Agent with a name and contact email (`SEC_EDGAR_UA`); without one it answers 403. Form D
+  filers rarely list a website, so EDGAR leads need the contact-discovery website steps before the crawl.
 
 ## Resume
 ```sh
 cd claude-lead-gen
 bin/leadgen doctor && bin/leadgen sources
 ```
-Run `python3 -m unittest`, then continue with "Not started" item 1 (live smoke tests). Commit and push after each item, to `main` (owner decision).
+Run `python3 -m unittest`, then continue with "Not started" item 3 (the `freelancer` demand adapter, per the data-source
+plan) unless the owner provides keys for item 1. Commit and push after each item, to `main` (owner decision).
