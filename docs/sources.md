@@ -167,6 +167,8 @@ the result with the `file` adapter.
 
 ## Adding a source
 
+Candidates already probed (demand outside RU/CIS, free registries) and the order to build them: [plans/data-sources.md](plans/data-sources.md).
+
 Use the `parser-builder` skill. It qualifies the source first (terms, login, captcha, a better official route),
 then finds the data path, writes `parse()` against synthetic fixtures, tests offline, runs a small live check,
 and registers the adapter.
