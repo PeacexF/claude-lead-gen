@@ -148,6 +148,14 @@ class TwoGisTest(unittest.TestCase):
         self.assertEqual(len(rows), 15)
         self.assertNotIn(self.SEARCH + "/page/3", f.calls)
         self.assertEqual(rows[0]["name"], "N0")  # firm page without the profile: the search entry is used
+        self.assertEqual({r["city"] for r in rows}, {"Казань"})
+
+    def test_city_code_replaced_by_the_units_city_name(self):
+        bare = {k: v for k, v in gis_branch("B", "o9").items() if k != "adm_div"}
+        search = gis_page({"101": gis_branch("A", "o1"), "102": bare}, total=2)
+        f = _GisFetcher({self.SEARCH: search, "https://2gis.ru/kazan/firm/": gis_page({})})
+        rows = twogis.collect_unit(self.ctx(f), {"query": "стом", "location": "kazan", "limit": 50, "domain": "2gis.ru"})
+        self.assertEqual([r["city"] for r in rows], ["Казань", "Казань"])
 
     def test_walls_stop_and_are_not_cached(self):
         unit = {"query": "стом", "location": "kazan", "limit": 12, "domain": "2gis.ru"}

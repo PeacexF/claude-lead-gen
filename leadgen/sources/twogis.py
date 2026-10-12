@@ -178,4 +178,9 @@ def collect_unit(ctx, unit: dict) -> list[dict]:
         n = total(st)
         if len(rows) >= unit["limit"] or len(found) < PER_PAGE or not branches or (n is not None and len(seen) >= n):
             break
+    # entries without an admin city (some search-page profiles) got the location code: use the unit's city name
+    name = next((r["city"] for r in rows if r.get("city") and r["city"] != unit["location"]), None)
+    for r in rows:
+        if name and r.get("city") == unit["location"]:
+            r["city"] = name
     return rows
